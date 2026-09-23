@@ -26,6 +26,8 @@ export interface Material {
   confidence: Confidence
   workflow_doc: string
   note: string
+  /** builtin 随包 / user 自建 / ai_generated AI 起草——后者一律按 🔴 显示 */
+  provenance: 'builtin' | 'user' | 'ai_generated'
 }
 
 export interface Option { value: string; label: string }
@@ -63,6 +65,8 @@ export interface Workflow {
   name_zh: string
   standard: string
   workflow_doc: string
+  provenance: 'builtin' | 'user' | 'ai_generated'
+  generated_by: string
   notes: string[]
   inputs: InputDef[]
   steps: { id: string; name_zh: string; kind: string; unit: string }[]
@@ -380,9 +384,26 @@ export interface Usage {
 export interface IntentResult {
   material: string | null
   values: Record<string, number | string>
+  /** 清单里没有时，用户想选的物料名。认出来了就是空串。 */
+  unknown_material: string
+  /** 能不能让 AI 起草这个物料的流程。离线时恒为 false —— 不给点了没反应的按钮 */
+  can_draft: boolean
   unmatched: string[]
   notes: string
   source: 'ai' | 'offline' | 'empty'
+  usage?: Usage
+}
+
+/** AI 起草的工作流草稿。**还没落盘**，跑通一次之后才由用户决定存不存。 */
+export interface WorkflowDraft {
+  material: string
+  name_zh: string
+  spec: Record<string, unknown>
+  inputs: number
+  steps: number
+  checks: number
+  confidence_note: string
+  source: 'ai'
   usage?: Usage
 }
 

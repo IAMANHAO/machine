@@ -9,6 +9,13 @@ const STATUS_BADGE: Record<Material['status'], { label: string; kind: 'ok' | 'wa
   planned: { label: '待生成', kind: 'warn' },
 }
 
+/** AI 起草的物料单独打标 —— 它没有任何信源，不该和随包的看起来一样。 */
+function badgeFor(m: Material) {
+  return m.provenance === 'ai_generated'
+    ? { label: 'AI 起草', kind: 'warn' as const }
+    : STATUS_BADGE[m.status]
+}
+
 export default function Home({ onStart, onOpen, aiBound }: {
   onStart: (material: string, values?: Record<string, unknown>) => void
   onOpen: (project: Project) => void
@@ -18,6 +25,8 @@ export default function Home({ onStart, onOpen, aiBound }: {
   const [parsing, setParsing] = useState(false)
   const [intent, setIntent] = useState<IntentResult | null>(null)
   const [intentErr, setIntentErr] = useState('')
+  const [drafting, setDrafting] = useState(false)
+  const [draftErr, setDraftErr] = useState<string[]>([])
   const [materials, setMaterials] = useState<Material[] | null>(null)
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [error, setError] = useState<string>('')
@@ -28,9 +37,30 @@ export default function Home({ onStart, onOpen, aiBound }: {
       .catch(e => setError(e.message))
   }, [])
 
+  /**
+   * 知识库里没有这个物料时的出路：让 AI 起草一份流程。
+   *
+   * 起草出来的是**草稿**，直接带进工作台跑。跑通之后用户才决定存不存——
+   * 一份没跑通的流程存下来，只会在物料列表里留一个点进去就报错的入口。
+   */
+  const draft = async (name: string) => {
+    setDrafting(true); setDraftErr([])
+    try {
+      const d = await api.draftWorkflow(name)
+      // 先存再进工作台：引擎要能按 id 加载到它，才跑得起来
+      await api.saveDraft(d.spec)
+      const fresh = await api.materials()
+      setMaterials(fresh)
+      onStart(d.material, intent?.values)
+    } catch (e) {
+      const err = e as RequestError & { detail?: { reasons?: string[] } }
+      setDraftErr(err.detail?.reasons?.length ? err.detail.reasons : [err.message])
+    } finally { setDrafting(false) }
+  }
+
   const parse = async () => {
     if (!text.trim()) return
-    setParsing(true); setIntentErr(''); setIntent(null)
+    setParsing(true); setIntentErr(''); setDraftErr([]); setIntent(null)
     try {
       const r = await api.intent(text)
       setIntent(r)
@@ -69,8 +99,33 @@ export default function Home({ onStart, onOpen, aiBound }: {
         {intentErr && <div className="mt-3"><Alert tone="err" title="识别失败">{intentErr}</Alert></div>}
         {intent && !intent.material && (
           <div className="mt-3">
-            <Alert tone="warn" title="没认出是哪种物料">
-              {intent.notes || '请直接从下面的物料入口里选一个。'}
+            <Alert tone="warn" title={intent.can_draft
+              ? `知识库里还没有「${intent.unknown_material}」`
+              : '没认出是哪种物料'}>
+              {intent.can_draft ? (
+                <>
+                  可以让 AI 起草一份这个物料的选型流程，再按正常流程走下去。
+                  <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
+                    起草的是<b>流程</b>，不是数据：所有需要查手册的系数都会做成输入项，
+                    由你自己填。结果会标成 <b>🔴 未经核验</b>——
+                    公式是否适用于你的工况，需要你对照手册确认。
+                  </div>
+                  <button className="btn btn-p mt-3" disabled={drafting}
+                          onClick={() => void draft(intent.unknown_material)}>
+                    {drafting ? '起草中…' : `让 AI 起草「${intent.unknown_material}」的选型流程 →`}
+                  </button>
+                </>
+              ) : (intent.notes || '请直接从下面的物料入口里选一个。')}
+            </Alert>
+          </div>
+        )}
+        {draftErr.length > 0 && (
+          <div className="mt-3">
+            <Alert tone="err" title="起草的流程没通过合规检查">
+              引擎宁可拒绝，也不让一份带着编造系数的流程跑起来。可以再试一次。
+              <ul className="mt-2 ml-4 list-disc text-[11px]">
+                {draftErr.slice(0, 5).map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
             </Alert>
           </div>
         )}
@@ -84,13 +139,15 @@ export default function Home({ onStart, onOpen, aiBound }: {
           <div className="mb-2 text-[13px] font-medium">快捷物料入口</div>
           <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-12 gap-2 mb-6">
             {[...ready, ...cacheOnly, ...planned].map(m => {
-              const badge = STATUS_BADGE[m.status]
+              const badge = badgeFor(m)
               const usable = m.status === 'ready'
               return (
                 <button key={m.id}
                         onClick={() => usable ? onStart(m.id) : undefined}
                         disabled={!usable}
-                        title={usable ? `${m.name_zh} · ${m.standard}` : m.note}
+                        title={m.provenance === 'ai_generated'
+                          ? `${m.name_zh} · AI 起草，未经核验`
+                          : (usable ? `${m.name_zh} · ${m.standard}` : m.note)}
                         className={`card p-3 text-center transition ${usable ? 'hover:border-blue-500' : 'opacity-60 cursor-not-allowed'}`}>
                   <div className="text-[22px] mb-1">{m.icon}</div>
                   <div className="text-[12px] truncate" title={m.name_zh}>{shortName(m.name_zh)}</div>

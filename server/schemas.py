@@ -30,6 +30,9 @@ class MaterialOut(BaseModel):
     icon: str = ""
     standard: str = ""
     status: Literal["ready", "cache_only", "planned"]
+    # builtin（随包）/ user（用户自建）/ ai_generated（AI 起草后保存的）
+    # 前端据此打 🔴 标记——生成的物料没有任何信源，不能与随包的混在一起显示
+    provenance: Literal["builtin", "user", "ai_generated"] = "builtin"
     table_count: int = 0
     confidence: str = "unknown"
     workflow_doc: str = ""
@@ -77,6 +80,8 @@ class WorkflowOut(BaseModel):
     name_zh: str
     standard: str = ""
     workflow_doc: str = ""
+    provenance: Literal["builtin", "user", "ai_generated"] = "builtin"
+    generated_by: str = ""
     notes: list[str] = Field(default_factory=list)
     inputs: list[InputOut]
     steps: list[StepOutline]

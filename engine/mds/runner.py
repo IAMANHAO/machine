@@ -265,7 +265,17 @@ def run(spec: WorkflowSpec, values: dict, knowledge: Knowledge | None = None,
     trace.confidence = lowest_confidence([s.get("confidence") for s in trace.sources])
     if not halted:
         trace.result = _render_result(spec, env)
-    if trace.confidence != "verified":
+
+    # AI 起草的工作流：这条警告要排在最前面，且比数据表那条更重。
+    # 数据表未核验，至少流程本身是有依据的；起草的流程连公式都没人核对过。
+    if spec.provenance == "ai_generated":
+        trace.confidence = "unknown"
+        trace.warnings.append(
+            f"⚠ 本物料的**选型流程**由 AI 起草（{spec.generated_by or '未知模型'}），"
+            "未经任何核验。引擎只保证它格式合法、且没有携带编造的数据表——"
+            "公式是否适用于你的工况、各系数该取多少，需要你对照手册逐项确认。"
+            "**不要拿这份结果直接定稿。**")
+    elif trace.confidence != "verified":
         trace.warnings.append(
             "本次选型引用的数据表中存在未经双源核验的条目（🟡 single_source），"
             "结果仅供初步设计参考，正式投产前请对照标准原件复核。")

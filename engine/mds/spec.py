@@ -17,7 +17,7 @@ import yaml
 
 from . import expr as _expr
 from .errors import SpecError
-from .knowledge import SKILL_ROOT
+from .knowledge import SKILL_ROOT, user_root
 
 STEP_KINDS = {
     "formula",        # 表达式求值
@@ -92,6 +92,10 @@ class WorkflowSpec:
     # 数据自检用的探测网格：base 给固定参数，sweep 给要遍历的维度
     probe: dict = field(default_factory=dict)
     path: Path | None = None
+    # builtin（随包）/ user（用户自建）/ ai_generated（AI 起草后保存的）
+    # ai_generated 的置信度一律按最低档处理，界面、报告、导出件全程打标
+    provenance: str = "builtin"
+    generated_by: str = ""          # 起草它的模型，便于追溯
 
     def input(self, iid: str) -> InputDef | None:
         return next((i for i in self.inputs if i.id == iid), None)
@@ -100,22 +104,40 @@ class WorkflowSpec:
         return next((s for s in self.steps if s.id == sid), None)
 
 
-def load(material: str, root: Path | str | None = None) -> WorkflowSpec:
-    """加载 workflows/<material>.yaml。"""
+def _workflow_dirs(root: Path | str | None = None) -> list[Path]:
+    """工作流的查找顺序：**内置优先，用户目录兜底**。
+
+    顺序不能反：已随包核验过的工作流不该被用户目录里的同名文件顶掉——
+    那会让一个 AI 起草的 🔴 规格悄悄取代一份有信源的 🟡 规格。
+    """
     base = Path(root) if root else SKILL_ROOT
-    path = base / "workflows" / f"{material}.yaml"
-    if not path.exists():
-        available = sorted(p.stem for p in (base / "workflows").glob("*.yaml"))
+    dirs = [base / "workflows"]
+    ur = user_root()
+    if root is None and ur:
+        dirs.append(ur / "workflows")
+    return dirs
+
+
+def load(material: str, root: Path | str | None = None) -> WorkflowSpec:
+    """加载 workflows/<material>.yaml。内置找不到时再看用户目录。"""
+    dirs = _workflow_dirs(root)
+    path = next((d / f"{material}.yaml" for d in dirs
+                 if (d / f"{material}.yaml").exists()), None)
+    if path is None:
+        avail = sorted({p.stem for d in dirs for p in d.glob("*.yaml")})
         raise SpecError(
-            f"没有物料 {material!r} 的可执行工作流（{path}）。"
-            f"当前可用：{', '.join(available) or '无'}")
+            f"没有物料 {material!r} 的可执行工作流。"
+            f"当前可用：{', '.join(avail) or '无'}")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return parse(data, path=path)
+    spec = parse(data, path=path)
+    # 落在用户目录里的一律视为非内置 —— 界面与报告据此打标
+    if len(dirs) > 1 and path.parent == dirs[-1] and spec.provenance == "builtin":
+        spec.provenance = "user"
+    return spec
 
 
 def available(root: Path | str | None = None) -> list[str]:
-    base = Path(root) if root else SKILL_ROOT
-    return sorted(p.stem for p in (base / "workflows").glob("*.yaml"))
+    return sorted({p.stem for d in _workflow_dirs(root) for p in d.glob("*.yaml")})
 
 
 def parse(data: dict, path: Path | None = None) -> WorkflowSpec:
@@ -139,6 +161,8 @@ def parse(data: dict, path: Path | None = None) -> WorkflowSpec:
         procure=dict(data.get("procure") or {}),
         notes=list(data.get("notes") or []),
         probe=dict(data.get("probe") or {}),
+        provenance=str(data.get("provenance") or "builtin"),
+        generated_by=str(data.get("generated_by") or ""),
         path=path,
     )
     _validate(spec)

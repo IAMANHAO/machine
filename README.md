@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-352%20passing-brightgreen.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-372%20passing-brightgreen.svg)](#测试)
 
 **过程可逐行验证的机械物料选型工具。离线可用，免费，开源。**
 
@@ -55,7 +55,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e . ".[dev]"   # Windows
 # source .venv/bin/activate && pip install -e ".[dev]"  # macOS / Linux
 
-.venv/Scripts/python.exe -m pytest -q                    # 352 项，应全绿
+.venv/Scripts/python.exe -m pytest -q                    # 372 项，应全绿
 ```
 
 跑起来：
@@ -181,6 +181,32 @@ AI 由你在设置页绑定自己的账号提供，请求由本机直连服务�
 | `parse_intent` | 整句工况 → 物料 + 参数 | 关键词匹配 |
 | `suggest_params` | 缺失参数 → 建议值 + 理由 | 只给规格里写明的典型值 |
 | `explain` | 已算完的一步 → 白话 | 关闭（没有诚实的降级方案） |
+| `draft_workflow` | **知识库里没有的物料 → 可执行的选型流程** | 关闭 |
+
+### 在线时可以选任何物料
+
+知识库里没有的物料（磁吸铁片、直线导轨滑块、气缸……），AI 会起草一份
+**可执行的选型流程**，交给同一个确定性引擎执行——你照常走完整流程、
+照常看到每一步的公式与代入值。跑通之后可以保存，**下次离线也能选**。
+
+这件事和「让 AI 算」只有一线之隔，边界靠**两道结构性闸门**守住，
+而不是靠提示词里的叮嘱：
+
+1. **必须通过 `spec.parse()`**——与随包工作流同一个解析器、同一套静态校验
+2. **不得引用任何数据表**——五种查表步骤（`table_lookup` / `table_interp` /
+   `table_pick` / `row_select` / `round_to_series`）一律拒绝
+
+于是分工是：**引擎做算术，AI 给流程，数值由你自己填。**
+系数、许用应力这些「手册会列表的量」，AI 不准内联成字面量，
+必须做成输入项并在 `hint` 里写明去哪本手册的哪张表查。
+
+代价是表单变长——你要自己查几个系数。这个代价是对的：
+**一个 AI 编出来的 K=1.3 和一个抄自国标的 K=1.3，在界面上长得一模一样。**
+
+起草出来的物料**全程标 🔴**：物料卡片、工作台横幅、trace 警告、PDF / Excel
+报告，一处都不漏；`confidence` 恒为最低档——它确实没有任何信源。
+保存下来的规格写进用户目录（`%LOCALAPPDATA%\MDS\workflows/`），
+不混进随包数据，也永远顶不掉同名的内置工作流。
 
 **建议值绕不过校验闸门**：每个 AI 建议在返回前都会跑一遍 `mds.runner._coerce`——
 与用户手输完全同一条通道。过不了的以 `rejected` 返回，调用方拿不到一个绕过校验的数。
@@ -229,8 +255,8 @@ PDF 中文用 reportlab 内置的 STSong-Light CID 字体，不随包分发字�
 ## 测试
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q      # 352 项
-.venv/Scripts/python.exe packaging/smoke_test.py   # 21 项，需先打包
+.venv/Scripts/python.exe -m pytest -q      # 372 项
+.venv/Scripts/python.exe packaging/smoke_test.py   # 28 项，需先打包
 ```
 
 这套测试的重点不是覆盖率，是守住那些**破了就毁掉产品价值**的性质。

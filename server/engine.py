@@ -24,13 +24,18 @@ __all__ = [
     "DataMissing", "InputError", "MDSError", "SpecError",
     "knowledge", "materials", "workflow_payload", "execute", "procure_build",
     "procure_for_trace", "audit_material", "audit_all", "read_table",
-    "workflow_spec",
+    "workflow_spec", "material_ids",
     "stale_sources", "engine_version", "reset_caches",
 ]
 
 
 def engine_version() -> str:
     return mds.__version__
+
+
+def material_ids() -> list[str]:
+    """全部可执行物料的 id（含用户目录里保存的）。起草新物料时用来避免重名。"""
+    return mds_spec.available()
 
 
 @lru_cache(maxsize=1)
@@ -78,24 +83,35 @@ def materials() -> list[dict]:
         name = info.get("name_zh") or mid
         standard = info.get("standard", "")
         doc = info.get("workflow", "")
+        provenance = "builtin"
         if ready:
             try:
                 spec = _spec(mid)
                 name = spec.name_zh or name
                 standard = spec.standard or standard
                 doc = spec.workflow_doc or doc
+                provenance = spec.provenance
             except SpecError:
                 ready = False
+
+        # AI 起草的物料一律按**最低置信度**显示，与"数据表缺信源"同级。
+        # 它确实没有任何信源——这不是保守，是事实。
+        confidence = "unknown" if provenance == "ai_generated" else _table_confidence(mid)
+        note = "" if ready else "已有 .md 工作流与缓存，尚未规格化为可执行 YAML"
+        if provenance == "ai_generated":
+            note = "AI 起草，未经核验：公式与系数都需要你对照手册确认"
+
         out.append({
             "id": mid,
             "name_zh": name,
-            "icon": icons.get(mid, "▦"),
+            "icon": icons.get(mid, "✦" if provenance == "ai_generated" else "▦"),
             "standard": standard,
             "status": "ready" if ready else "cache_only",
+            "provenance": provenance,
             "table_count": len(know.tables_of(mid)),
-            "confidence": _table_confidence(mid),
+            "confidence": confidence,
             "workflow_doc": doc,
-            "note": "" if ready else "已有 .md 工作流与缓存，尚未规格化为可执行 YAML",
+            "note": note,
         })
 
     for planned in index.get("planned_materials") or []:
@@ -105,6 +121,7 @@ def materials() -> list[dict]:
             "icon": planned.get("icon", "＋"),
             "standard": planned.get("standard_hint", ""),
             "status": "planned",
+            "provenance": "builtin",
             "table_count": 0,
             "confidence": "unknown",
             "workflow_doc": "",
@@ -160,11 +177,15 @@ def workflow_payload(material: str) -> dict:
         "name_zh": spec.name_zh or spec.material,
         "standard": spec.standard,
         "workflow_doc": spec.workflow_doc,
+        "provenance": spec.provenance,
+        "generated_by": spec.generated_by,
         "notes": spec.notes,
         "inputs": inputs,
         "steps": steps,
         "sources": sources,
-        "confidence": _table_confidence(material),
+        # AI 起草的流程没有任何信源表，置信度按最低档——与"数据表缺信源"同级
+        "confidence": ("unknown" if spec.provenance == "ai_generated"
+                       else _table_confidence(material)),
     }
 
 

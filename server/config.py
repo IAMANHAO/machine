@@ -38,6 +38,11 @@ def _bundled(name: str) -> Path | None:
     return path if path.exists() else None
 
 
+# 进程启动时用户显式设的值。之后 ensure_engine_importable() 会覆写
+# MDS_USER_ROOT，所以必须在那之前记下来，否则分不清是谁写的。
+_EXPLICIT_USER_ROOT = os.environ.get("MDS_USER_ROOT") or ""
+
+
 def skill_root() -> Path:
     """引擎数据根（workflows/ + knowledge/）。打包态下是只读的。"""
     if USER_SKILL_ROOT:
@@ -57,9 +62,21 @@ def ensure_engine_importable() -> Path:
 
     回写是必需的：mds.knowledge 在 import 时确定自己的数据根，打包后它
     没法从 __file__ 推出随包数据的位置，只能靠 MDS_SKILL_ROOT。
+
+    **用户目录同理，而且更隐蔽**：打包态 data_dir() 是从 LOCALAPPDATA 算出来的，
+    并不是环境变量。不回写的话 mds 那边 user_root() 读不到任何东西——
+    结果就是草稿存得进去、引擎却找不到，物料列表里看不见。
+    这个 bug 只在打包态出现（源码态 MDS_DATA_DIR 通常由测试或 run.ps1 设好），
+    是 packaging/smoke_test.py 抓出来的。
     """
     root = skill_root()
     os.environ["MDS_SKILL_ROOT"] = str(root)
+    # MDS_DATA_DIR 在场时**什么都不做**：mds.knowledge.user_root() 本来就会读它，
+    # 而且读的是"此刻"的值。在这里回写反而会把某一刻的值钉死，
+    # 之后改 MDS_DATA_DIR（测试、多实例）全部失效。
+    # 只有它不在场时（打包态从 LOCALAPPDATA 算出来）才需要我们告诉引擎去哪找。
+    if not os.environ.get("MDS_DATA_DIR") and not _EXPLICIT_USER_ROOT:
+        os.environ["MDS_USER_ROOT"] = str(data_dir())
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     return root

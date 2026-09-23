@@ -45,12 +45,13 @@ def check(ok: bool, label: str, detail: str = "") -> None:
         print(f"  ✗ {label}{'  ' + detail if detail else ''}")
 
 
-def _req(url: str, payload: dict | None = None, timeout: float = 60.0):
+def _req(url: str, payload: dict | None = None, timeout: float = 60.0,
+         method: str | None = None):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         url, data=data,
         headers={"Content-Type": "application/json"} if data else {},
-        method="POST" if data else "GET")
+        method=method or ("POST" if data else "GET"))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read(), _headers(r.headers)
@@ -63,8 +64,8 @@ def _headers(msg) -> dict:
     return {k.lower(): v for k, v in msg.items()}
 
 
-def _json(url: str, payload: dict | None = None):
-    status, body, _ = _req(url, payload)
+def _json(url: str, payload: dict | None = None, method: str | None = None):
+    status, body, _ = _req(url, payload, method=method)
     try:
         return status, json.loads(body)
     except json.JSONDecodeError:
@@ -164,6 +165,56 @@ def main() -> int:
             f"{base}/api/knowledge/synchronous_belt/tables/belt_pitch/verify",
             {"second_source": "冒烟测试"})
         check(status == 409, "知识库写入被明确拒绝（而不是静默失败）", str(status))
+
+        # --- 用户自建物料：打包态最容易出问题的一处 ---
+        # 随包知识库是只读的（上一条刚验过），但**用户目录必须是可写的**，
+        # 否则 AI 起草的物料存不下来，"下次离线也能选"就是句空话。
+        # 这两件事共用一套路径解析，源码态两者都可写，测不出这个区别。
+        print("\n用户自建物料（AI 起草后保存的那条路）")
+        draft = {
+            "material": "smoke_probe_material", "name_zh": "冒烟测试物料",
+            "notes": ["冒烟测试用，跑完即删"],
+            "inputs": [{"id": "F", "name_zh": "载荷", "unit": "N", "required": True,
+                        "domain": {"min": 1, "max": 1000}, "hint": "冒烟测试"},
+                       {"id": "A", "name_zh": "许用面积", "unit": "mm2", "required": True,
+                        "domain": {"min": 1, "max": 1000}, "hint": "冒烟测试"}],
+            "steps": [
+                {"id": "s", "kind": "formula", "name_zh": "算个数", "expr": "F * 2",
+                 "unit": "mm2", "source": {"ref": "冒烟测试"}, "outputs": ["s"]},
+                {"id": "c", "kind": "check", "name_zh": "校核", "value": "s",
+                 "op": "<=", "limit": "A", "unit": "mm2", "on_fail": "加大面积",
+                 "source": {"ref": "冒烟测试"}}],
+            "result": [{"label": "结果", "value": "{s}", "unit": "mm2"}],
+        }
+        status, body = _json(f"{base}/api/ai/save-draft", {"spec": draft})
+        check(status == 200, "用户目录可写（随包只读不影响它）", str(body)[:120])
+
+        _, body = _json(f"{base}/api/materials")
+        mine = next((m for m in body if m.get("id") == "smoke_probe_material"), None)
+        check(mine is not None and mine.get("status") == "ready",
+              "保存后立刻出现在物料列表里")
+        check(bool(mine) and mine.get("provenance") == "ai_generated"
+              and mine.get("confidence") == "unknown",
+              "标成 AI 起草 + 最低置信度（它确实没有任何信源）")
+
+        status, body = _json(f"{base}/api/selection/run", {
+            "material": "smoke_probe_material", "save": False,
+            "values": {"F": 100, "A": 500}})
+        trace = body.get("trace", {})
+        check(status == 200 and trace.get("status") == "ok",
+              "自建物料能真的跑起来", str(body)[:120])
+        check(any("AI 起草" in w for w in trace.get("warnings", [])),
+              "结果里带着「AI 起草、未经核验」的警告")
+
+        # 闸门在打包态同样有效：带数据表的草稿必须被拒
+        bad = dict(draft, material="smoke_probe_bad")
+        bad["steps"] = [{"id": "t", "kind": "table_lookup", "name_zh": "查表",
+                         "table": "nope", "key": "a.b", "outputs": ["t"]}] + draft["steps"]
+        status, _ = _json(f"{base}/api/ai/save-draft", {"spec": bad})
+        check(status == 422, "引用数据表的草稿被拒（闸门在打包态同样有效）", str(status))
+
+        status, _ = _json(f"{base}/api/ai/saved/smoke_probe_material", method="DELETE")
+        check(status == 200, "自建物料可以删除（跑完清理干净）", str(status))
 
         # --- 数据自检 ---
         print("\n数据自检")

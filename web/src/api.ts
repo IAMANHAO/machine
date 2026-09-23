@@ -124,6 +124,16 @@ export const api = {
   // ── AI 三接口 ──
   intent: (text: string, mode = 'auto') =>
     post<IntentResult>('/ai/intent', { text, mode }),
+  // 知识库里没有的物料：让 AI 起草一份流程。返回的是草稿，还没落盘。
+  draftWorkflow: (material_text: string, mode = 'auto') =>
+    post<import('./types').WorkflowDraft>('/ai/draft-workflow', { material_text, mode }),
+  // 跑通之后存进用户目录 —— 下次离线也能选这个物料
+  saveDraft: (spec: Record<string, unknown>) =>
+    post<{ saved: boolean; material: string; name_zh: string; note: string }>(
+      '/ai/save-draft', { spec }),
+  deleteSaved: (material: string) =>
+    call<{ removed: boolean }>(`/ai/saved/${encodeURIComponent(material)}`,
+      { method: 'DELETE' }),
   suggest: (material: string, known: Record<string, unknown>, mode = 'auto') =>
     post<SuggestResult>('/ai/suggest', { material, known, mode }),
   explain: (material: string, step: Step, mode = 'auto') =>

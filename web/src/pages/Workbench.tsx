@@ -166,11 +166,28 @@ function coerce(values: Record<string, string>, wf: Workflow | null): Record<str
 function Stage0({ wf, onNext }: { wf: Workflow; onNext: () => void }) {
   return (
     <Section title="阶段 0 · 物料识别" sub="确认要选的物料，以及将依据哪份标准">
+      {wf.provenance === 'ai_generated' && (
+        <div className="mb-4">
+          <Alert tone="err" title="这份选型流程由 AI 起草，未经任何核验">
+            引擎只保证它<b>格式合法</b>、且<b>没有携带编造的数据表</b>——
+            所有需要查手册的量都做成了输入项，由你自己填。
+            <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
+              但<b>没有人核对过这些公式是否适用于你的工况</b>。
+              起草模型：<span className="num">{wf.generated_by || '未知'}</span>。
+              正式设计前请对照手册逐项确认，<b>不要拿这份结果直接定稿</b>。
+            </div>
+          </Alert>
+        </div>
+      )}
       <div className="card p-5">
         <div className="grid md:grid-cols-2 gap-4 text-[13px]">
           <Field label="物料">{wf.name_zh}</Field>
           <Field label="主导标准">{wf.standard || '—'}</Field>
-          <Field label="可执行规格"><span className="num">workflows/{wf.material}.yaml</span></Field>
+          <Field label="可执行规格">
+            <span className="num">
+              {wf.provenance === 'ai_generated' ? '用户目录/' : ''}workflows/{wf.material}.yaml
+            </span>
+          </Field>
           <Field label="人读文档"><span className="num">{wf.workflow_doc || '—'}</span></Field>
           <Field label="计算步骤">{wf.steps.length} 步</Field>
           <Field label="数据表">{wf.sources.length} 张 · <ConfidenceBadge level={wf.confidence} /></Field>

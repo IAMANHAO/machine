@@ -182,6 +182,7 @@
 | `POST /api/ai/intent` | 降级为关键词匹配，`source: "offline"` |
 | `POST /api/ai/suggest` | 降级为规格里的 `typical` 值 |
 | `POST /api/ai/explain` | **409**（没有诚实的降级方案） |
+| `POST /api/ai/draft-workflow` | **409**（离线造不出流程，只能如实说） |
 
 `suggest` 的返回分三组：
 
@@ -193,6 +194,35 @@
 
 **`rejected` 是结构性保证**：每个建议值在返回前都跑过 `mds.runner._coerce`——
 与用户手输完全同一条通道。调用方拿不到一个绕过校验的数。
+
+### 知识库里没有的物料
+
+| 端点 | 说明 |
+|---|---|
+| `POST /api/ai/draft-workflow` | 体 `{material_text}` → 起草一份可执行流程。**返回草稿，还没落盘** |
+| `POST /api/ai/save-draft` | 体 `{spec}` → 存进用户目录，下次离线也能选 |
+| `DELETE /api/ai/saved/{material}` | 删掉一个已保存的生成物料（随包物料删不掉） |
+
+起草要过**两道闸门**：格式合法（`spec.parse()`，与随包工作流同一个解析器）、
+且**不引用任何数据表**。没过返回 **422**，`detail.reasons` 逐条说明哪里不合规：
+
+```json
+{ "detail": { "error": "draft_rejected",
+              "message": "AI 起草的流程没通过合规检查（2 处）。…",
+              "reasons": ["步骤 K_A 用了 table_lookup —— 新物料没有数据表…",
+                          "步骤 A_req 没有写 source.ref —— 每个公式都要说明出处"] } }
+```
+
+`/api/materials` 与 `/api/workflow/{m}` 都带 `provenance`
+（`builtin` / `user` / `ai_generated`）。AI 起草的物料 `confidence` 恒为 `unknown`。
+
+`/api/ai/intent` 认不出物料时不再是死胡同，会带回：
+
+```json
+{ "material": null, "unknown_material": "磁吸铁片", "can_draft": true }
+```
+
+离线时 `can_draft` 恒为 `false`——起草确实需要在线，不给点了没反应的按钮。
 
 ---
 

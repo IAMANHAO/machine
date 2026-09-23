@@ -22,8 +22,8 @@ cd web; npm run dev                                 # → :5173，自动代理 /
 ## 测试
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q               # 315 项
-.venv/Scripts/python.exe packaging/smoke_test.py    # 22 项，需先打包
+.venv/Scripts/python.exe -m pytest -q               # 372 项
+.venv/Scripts/python.exe packaging/smoke_test.py    # 28 项，需先打包
 ```
 
 引擎侧的测试住在 `engine/tests/`，
@@ -44,6 +44,7 @@ cd web; npm run dev                                 # → :5173，自动代理 /
 | `test_knowledge.py` | 双源守卫、写入保注释、引擎立即可见 |
 | `test_ai.py` | 未绑定可用、建议绕不过闸门、凭据不泄漏、超限拒绝 |
 | `test_providers.py` | 四家服务商的接入差异、**验证代价如实告知**、多账号切换、v1 迁移 |
+| `test_draft.py` | **两道闸门挡得住**、🔴 标记不漏、保存后离线可用 |
 | `conftest.py` | 共享的 FakeProvider 与数据目录/凭据库隔离夹具 |
 | `test_export.py` | 信源清单在、代入式在、流程没走完不装作走完了 |
 

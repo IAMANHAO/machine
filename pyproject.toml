@@ -19,6 +19,6 @@ dependencies = [
 dev = ["pytest>=8.0", "httpx2", "pypdf>=4"]
 
 [tool.pytest.ini_options]
-# 引擎测试与 API 测试一起跑：引擎住在 engine/（那也是 workflows/knowledge 的家）
+# 引擎测试与 API 测试一起跑：引擎住在 skill 目录里（那也是 workflows/knowledge 的家）
 testpaths = ["tests", "engine/tests"]
 addopts = "-q"
