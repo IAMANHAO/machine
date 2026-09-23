@@ -1,0 +1,373 @@
+## 润滑油（链条 / 开式齿轮 / 导轨）选型 —— 可执行工作流规格
+#
+# 这是**分支型**工作流，与同步带的线性流程差别很大：三类润滑对象的参数、
+# 公式、决策表完全不同。分支用 `when:` 守卫表达——每一步声明自己在什么条件下
+# 适用，不适用就标 not_applicable（与"前面出错所以没跑到"的 skipped 区分开）。
+#
+# 另一处根本差异：这里的表不是数值插值网格，而是**决策表**——按速度档位
+# 返回一整组推荐（ISO VG 候选、基础油、添加剂、典型产品）。所以用 table_pick
+# 而不是 table_lookup：硬塞进后者只会把这些建议压成一个字符串。
+
+schema_version: 1
+material: lubricant
+name_zh: 润滑油（链条 / 开式齿轮 / 导轨）
+standard: GB/T 7631.12 · ISO 3448 · DIN 8195-12 · ISO 6743-9 / AGMA 9004
+workflow_doc: workflows/lubricant.md
+
+notes:
+  - "本工作流只做**能算的部分**：速度计算、速度分档、按决策表给出黏度与基础油
+     建议、温度适用性判定。油膜厚度 h ≥ 0.1 μm、换油周期、添加剂兼容、食品级等
+     **没有实现**——缓存里没有任何数据支撑它们，编一个公式出来比不做更糟。
+     .md 已把这些移入「未实现项」一节并逐条写明缺什么（2026-09-22）。"
+  - "输出的是一组**推荐区间**（如 ISO VG 150 / 220 / 320），不是唯一解。
+     油品选型本身就有区间，最终取值要结合厂商样本与实际工况温度。"
+  - "链条的 Tsubaki 温度建议表（按链号 × 温度给 SAE 牌号）已在缓存里，
+     但与 ISO VG 路线是两套口径，本规格未混用，避免给出自相矛盾的建议。"
+  - "全部数据表均为 single_source，且润滑油品类厂商差异很大，
+     正式选用前务必对照厂商样本（PDS）确认。"
+  - "导轨速度公式：.md 文档写作 v = n × L / 60，但它自己的判据是
+     「v < 15 m/min → 滑动导轨」。n 取 r/min、L 取 mm 时，n×L/60 的量纲是
+     mm/s，与 m/min 对不上。本规格按 v[m/min] = n × L / 1000 实现
+     （1500 r/min × 10 mm 导程 = 15 m/min，与工程直觉相符）。
+     .md 文档已于 2026-09-22 按本规格更正并标注勘误（同时删去了「速度决定导轨类型」
+     这条不成立的判据）；**仍待手册原文确认**——这与同步带啮合齿数是同一类转写问题。"
+
+inputs:
+  - id: target
+    name_zh: 润滑对象
+    type: enum
+    required: true
+    options:
+      - {value: chain, label: 链条（滚子链 / 套筒链）}
+      - {value: open_gear, label: 开式齿轮（磨机、回转窑、堆取料机）}
+      - {value: rail, label: 导轨（机床滑动导轨 / 直线导轨）}
+    hint: 三类对象的计算方法与决策表完全不同，先选对象
+
+  - id: T_work
+    name_zh: 工作温度
+    unit: ℃
+    required: true
+    domain: {min: -40, max: 300}
+    hint: 测温点为摩擦副本体，不是环境温度
+
+  # ---------- 链条分支 ----------
+  - id: z1
+    name_zh: 小链轮齿数
+    required_when: "target == 'chain'"
+    domain: {min: 9, max: 120}
+
+  - id: p_chain
+    name_zh: 链条节距
+    unit: mm
+    required_when: "target == 'chain'"
+    domain: {min: 4, max: 120}
+    hint: 08B=12.7 / 10B=15.875 / 12B=19.05 / 16B=25.4
+
+  - id: n_chain
+    name_zh: 小链轮转速
+    unit: r/min
+    required_when: "target == 'chain'"
+    domain: {min: 1, max: 5000}
+
+  - id: chain_method
+    name_zh: 加油方式
+    type: enum
+    required_when: "target == 'chain'"
+    options:
+      - {value: oil_bath, label: 油浴（链条下缘浸入油池）}
+      - {value: spray, label: 喷雾 / 油雾}
+      - {value: hand, label: 手工加油}
+      - {value: drip, label: 滴油杯}
+    hint: 加油方式直接决定黏度档，必须与实际装置一致
+
+  # ---------- 开式齿轮分支 ----------
+  - id: d_gear
+    name_zh: 齿轮节圆直径
+    unit: mm
+    required_when: "target == 'open_gear'"
+    domain: {min: 50, max: 20000}
+
+  - id: n_gear
+    name_zh: 齿轮转速
+    unit: r/min
+    required_when: "target == 'open_gear'"
+    domain: {min: 0.1, max: 3000}
+
+  # ---------- 导轨分支 ----------
+  - id: n_screw
+    name_zh: 丝杠 / 驱动转速
+    unit: r/min
+    required_when: "target == 'rail'"
+    domain: {min: 1, max: 6000}
+
+  - id: lead
+    name_zh: 导程
+    unit: mm
+    required_when: "target == 'rail'"
+    domain: {min: 1, max: 100}
+    hint: 丝杠转一圈工作台走的距离
+
+  - id: rail_pair
+    name_zh: 导轨配副
+    type: enum
+    required_when: "target == 'rail'"
+    default: metal_metal
+    options:
+      - {value: metal_metal, label: 滑动导轨（金属-金属）}
+      - {value: vertical, label: 立式导轨 / 需防下滑}
+    hint: 塑-金属配副与滚动导轨另有规则，本规格暂只覆盖这两种
+
+# 分支型工作流的探测网格必须逐条列举：三条分支要的参数根本不是一套，
+# 笛卡尔积那种写法在这里表达不了。
+probe:
+  base:
+    T_work: 55
+  cases:
+    - {name: 链条·低速手加油, target: chain, z1: 19, p_chain: 12.7, n_chain: 300, chain_method: hand}
+    - {name: 链条·低速滴油, target: chain, z1: 19, p_chain: 12.7, n_chain: 300, chain_method: drip}
+    - {name: 链条·高速喷雾, target: chain, z1: 19, p_chain: 12.7, n_chain: 1500, chain_method: spray}
+    - {name: 链条·高速油浴, target: chain, z1: 19, p_chain: 12.7, n_chain: 1500, chain_method: oil_bath}
+    - {name: 链条·低速油浴（表内无此组合）, target: chain, z1: 19, p_chain: 12.7, n_chain: 300, chain_method: oil_bath}
+    - {name: 开式齿轮·极低速, target: open_gear, d_gear: 4000, n_gear: 2}
+    - {name: 开式齿轮·中速, target: open_gear, d_gear: 3000, n_gear: 15}
+    - {name: 开式齿轮·超速（应判定开式不适用）, target: open_gear, d_gear: 3000, n_gear: 120}
+    - {name: 导轨·低速, target: rail, n_screw: 300, lead: 10, rail_pair: metal_metal}
+    - {name: 导轨·中速, target: rail, n_screw: 1500, lead: 10, rail_pair: metal_metal}
+    - {name: 导轨·立式防下滑, target: rail, n_screw: 600, lead: 10, rail_pair: vertical}
+
+result:
+  - {label: 润滑对象, value: "{target_label}"}
+  - {label: 工作温度, value: "{T_work}", unit: ℃}
+  - {label: 计算速度, value: "{v_label}"}
+  - {label: 推荐 ISO VG, value: "{iso_vg}"}
+  - {label: 基础油, value: "{base_oil}"}
+  - {label: 添加剂, value: "{additives}"}
+  - {label: 推荐形态, value: "{form}"}
+  - {label: 典型产品, value: "{products}"}
+  - {label: 选用说明, value: "{rec_notes}"}
+  - {label: 采购关键字, value: "{procure_kind} VG{iso_vg_first}"}
+
+procure:
+  material_template: lubricant
+  channels: [taobao, tmall]
+  fields:
+    vg: "{iso_vg_first}"
+    kind: "{procure_kind}"
+
+steps:
+  # ══════════ 公共：可读标签 ══════════
+  # 结果表与采购关键词要给人看，"chain" 这种内部值不该直接出现在报告里
+  - id: label_chain
+    name_zh: 对象标签
+    kind: text
+    when: "target == 'chain'"
+    template: 链条
+    outputs: [target_label]
+
+  - id: label_gear
+    name_zh: 对象标签
+    kind: text
+    when: "target == 'open_gear'"
+    template: 开式齿轮
+    outputs: [target_label]
+
+  - id: label_rail
+    name_zh: 对象标签
+    kind: text
+    when: "target == 'rail'"
+    template: 导轨
+    outputs: [target_label]
+
+  - id: kind_chain
+    name_zh: 采购品类
+    kind: text
+    when: "target == 'chain'"
+    template: 链条油
+    outputs: [procure_kind]
+
+  - id: kind_gear
+    name_zh: 采购品类
+    kind: text
+    when: "target == 'open_gear'"
+    template: 开式齿轮脂
+    outputs: [procure_kind]
+
+  - id: kind_rail
+    name_zh: 采购品类
+    kind: text
+    when: "target == 'rail'"
+    template: 导轨油
+    outputs: [procure_kind]
+
+  # ══════════ 链条 ══════════
+  - id: v_chain
+    name_zh: 链速
+    kind: formula
+    when: "target == 'chain'"
+    expr: "z1 * p_chain * n_chain / 60000"
+    unit: m/s
+    source: {ref: "v = z1 × p × n1 / 60000"}
+    outputs: [v_chain]
+
+  - id: v_label_chain
+    name_zh: 速度说明
+    kind: text
+    when: "target == 'chain'"
+    template: "链速 {v_chain} m/s"
+    outputs: [v_label]
+
+  - id: chain_speed_class
+    name_zh: 链速分档
+    kind: bucket
+    when: "target == 'chain'"
+    value: v_chain
+    bins:
+      - {max: 5, key: low_speed}
+      - {key: high_speed}
+    note: "DIN 8195-12：v ≥ 5 m/s 为高速链，黏度档与加油方式随之改变"
+    outputs: [chain_speed]
+
+  - id: chain_rec
+    name_zh: 查链条润滑决策表
+    kind: table_pick
+    when: "target == 'chain'"
+    table: chain_viscosity
+    # 键由 速度档 + 加油方式 拼出。表里只覆盖 4 种合理组合
+    # （高速油浴/高速喷雾/低速手加/低速滴油）；其余组合会如实报数据缺失，
+    # 而不是硬凑一个最接近的档——高速手工加油本来就不是个该被推荐的配置。
+    key: "by_speed_and_method.{chain_speed}_{chain_method}"
+    fields:
+      ISO_VG_recommended: iso_vg
+      base_oil_class: base_oil
+      additives: additives
+      notes: rec_notes
+    outputs: [iso_vg, base_oil, additives, rec_notes]
+
+  # ══════════ 开式齿轮 ══════════
+  - id: v_gear
+    name_zh: 节圆速
+    kind: formula
+    when: "target == 'open_gear'"
+    expr: "pi * d_gear * n_gear / 60000"
+    unit: m/s
+    source: {ref: "v = π × d × n / 60000"}
+    outputs: [v_gear]
+
+  - id: v_label_gear
+    name_zh: 速度说明
+    kind: text
+    when: "target == 'open_gear'"
+    template: "节圆速 {v_gear} m/s"
+    outputs: [v_label]
+
+  - id: gear_speed_class
+    name_zh: 节圆速分档
+    kind: bucket
+    when: "target == 'open_gear'"
+    value: v_gear
+    bins:
+      - {max: 0.5, key: very_slow}
+      - {max: 2, key: slow}
+      - {max: 5, key: medium}
+      - {max: 15, key: fast}
+      - {key: very_fast}
+    source: {ref: "ISO 6743-9 / AGMA 9004 按节圆速分档"}
+    outputs: [gear_speed]
+
+  - id: gear_rec
+    name_zh: 查开式齿轮润滑决策表
+    kind: table_pick
+    when: "target == 'open_gear'"
+    table: open_gear_viscosity
+    key: "by_pitch_line_speed.{gear_speed}"
+    fields:
+      recommended_form: form
+      ISO_VG_typical: iso_vg
+      base_oil: base_oil
+      notes: rec_notes
+    allow_partial: true
+    outputs: [form, iso_vg, base_oil, rec_notes]
+
+  - id: chk_gear_open
+    name_zh: 开式结构适用性校核
+    kind: check
+    when: "target == 'open_gear'"
+    value: v_gear
+    op: "<="
+    limit: "15"
+    unit: m/s
+    on_fail: 节圆速超过 15 m/s，开式结构已不适用，必须改为强制闭式齿轮箱
+    source: {ref: "ISO 6743-9 / AGMA 9004"}
+
+  # ══════════ 导轨 ══════════
+  - id: v_rail
+    name_zh: 导轨移动速度
+    kind: formula
+    when: "target == 'rail'"
+    expr: "n_screw * lead / 1000"
+    unit: m/min
+    source: {ref: "v = n × L / 1000（n 为丝杠转速 r/min，L 为导程 mm）"}
+    outputs: [v_rail]
+
+  - id: v_label_rail
+    name_zh: 速度说明
+    kind: text
+    when: "target == 'rail'"
+    template: "移动速度 {v_rail} m/min"
+    outputs: [v_label]
+
+  - id: rail_speed_class
+    name_zh: 导轨速度分档
+    kind: bucket
+    when: "target == 'rail' and rail_pair == 'metal_metal'"
+    value: v_rail
+    bins:
+      - {max: 5, key: slow}
+      - {max: 15, key: medium}
+      - {max: 60, key: fast}
+      - {key: fast}   # >60 m/min 仍按 fast 档，表里没有更高档
+    outputs: [rail_speed]
+
+  - id: rail_rec
+    name_zh: 查滑动导轨润滑表
+    kind: table_pick
+    when: "target == 'rail' and rail_pair == 'metal_metal'"
+    table: rail_viscosity
+    key: "slide_rail_metal_metal.by_speed.{rail_speed}"
+    fields:
+      ISO_VG: iso_vg
+      base_oil: base_oil
+      additives: additives
+      typical_products: products
+    outputs: [iso_vg, base_oil, additives, products]
+
+  - id: rail_vertical_rec
+    name_zh: 查立式导轨润滑表
+    kind: table_pick
+    when: "target == 'rail' and rail_pair == 'vertical'"
+    table: rail_viscosity
+    key: "slide_rail_metal_metal.by_speed.vertical_or_anti_sag"
+    fields:
+      ISO_VG: iso_vg
+      notes: rec_notes
+    outputs: [iso_vg, rec_notes]
+
+  # ══════════ 公共：温度适用性 ══════════
+  - id: chk_mineral_temp
+    name_zh: 矿物油温度适用性校核
+    kind: check
+    value: T_work
+    op: "<="
+    limit: "100"
+    unit: ℃
+    on_fail: 工作温度 ≥ 100℃ 时矿物油黏度衰减快、氧化寿命短，应改用 PAO 或酯类合成油，并按合成油样本重新确定黏度档
+    source: {ref: "成大先《机械设计手册》第4卷 润滑；chain_viscosity.yaml high_temp_alt"}
+
+  - id: chk_low_temp
+    name_zh: 低温流动性校核
+    kind: check
+    value: T_work
+    op: ">="
+    limit: "-10"
+    unit: ℃
+    on_fail: 低于 -10℃ 需确认倾点与低温启动黏度，常规矿物油可能泵送困难，应选低倾点或合成基础油

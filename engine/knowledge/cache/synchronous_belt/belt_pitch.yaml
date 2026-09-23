@@ -1,0 +1,49 @@
+---
+data_source: GB/T 11362-2021《同步带传动 节距型号MXL、XXL、XL、L、H、XH和XXH梯形齿同步带额定功率和传动中心距计算》
+last_verified: 2026-09-17
+verification_status: single_source
+_todo: "原 frontmatter 把 GB/T 11361《梯形齿带轮》的书名安在了 GB/T 11362 的编号上，已更正标题。仍需核实：节距 pb 与推荐最大带速 vmax 究竟抄自 11362 还是 11361（两份都定义了节距系列），并用标准原件核对每种带型的数值。"
+unit_notes:
+  pitch_pb: mm
+  vmax: m/s
+---
+
+# 同步带带型 节距 pb 与 推荐最大带速 vmax
+# 适用：梯形齿同步带（GB/T 11362 系列）
+
+belt_types:
+  XL:
+    name_zh: 梯形齿 XL（超轻型）
+    pitch_pb: 5.08
+    vmax: 40.0
+    typical_use: 轻载、仪器仪表、轻工机械
+  L:
+    name_zh: 梯形齿 L（轻型）
+    pitch_pb: 9.525
+    vmax: 35.0
+    typical_use: 一般机械传动，最常用
+  H:
+    name_zh: 梯形齿 H（重型）
+    pitch_pb: 12.7
+    vmax: 30.0
+    typical_use: 中等及重载传动
+  XH:
+    name_zh: 梯形齿 XH（特重型）
+    pitch_pb: 22.225
+    vmax: 25.0
+    typical_use: 重载低速传动
+  XXH:
+    name_zh: 梯形齿 XXH（超重型）
+    pitch_pb: 31.75
+    vmax: 20.0
+    typical_use: 重型低速
+
+# 节圆直径计算
+# d = z * pb / π
+
+# 速比相关
+# v = π * d1 * n1 / 60000  (m/s, d in mm, n in r/min)
+# v ≤ vmax  (校核)
+
+# 备注：公制圆弧齿同步带（GB/T 11616）的带型 3M/5M/8M/14M/20M 不在本表，
+# 若使用圆弧齿，请补充对应的 pb / vmax 表。

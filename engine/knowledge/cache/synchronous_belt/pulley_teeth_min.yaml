@@ -1,0 +1,52 @@
+---
+data_source: GB/T 11362-2021；成大先《机械设计手册》第3卷
+last_verified: 2026-09-17
+verification_status: single_source
+_todo: "原标注为 GB/T 11362-2021。但最小齿数 z1min 属带轮参数，更可能出自 GB/T 11361-2018《同步带传动 节距型号MXL、XXL、XL、L、H、XH和XXH梯形齿带轮》；GB/T 11362 是额定功率与中心距计算标准。需用标准原件确认归属后改正 data_source，并核对按 n1 分档的 z1min 取值。"
+unit_notes:
+  speed_n1: r/min
+  teeth_count: teeth
+---
+
+# 同步带（梯形齿）小带轮最小齿数 z1min
+# 用法：按带型 + n1 查 z1min；实际 z1 ≥ z1min，并尽量取大以增大 d1 和啮合齿数。
+
+pulley_min_teeth:
+  XL:
+    n1_le_900: 12
+    n1_900_to_1800: 18
+    n1_1800_to_3600: 24
+    n1_gt_3600: 30
+  L:
+    n1_le_900: 12
+    n1_900_to_1800: 18
+    n1_1800_to_3600: 24
+    n1_gt_3600: 30
+  H:
+    n1_le_900: 14
+    n1_900_to_1800: 20
+    n1_1800_to_3600: 28
+    n1_gt_3600: 36
+  XH:
+    n1_le_900: 22
+    n1_900_to_1800: 28
+    n1_1800_to_3600: 34
+    n1_gt_3600: 40
+  XXH:
+    n1_le_900: 22
+    n1_900_to_1800: 28
+    n1_1800_to_3600: 34
+    n1_gt_3600: 40
+
+# 选取原则
+# z1 在满足 z1min 的前提下，应尽量取大，理由：
+# 1. d1 = z1 × pb / π 增大 → 啮合齿数 zm 增大 → Kz = 1（zm ≥ 6 时）
+# 2. 降低每齿负载
+# 3. 减小弯曲应力
+# 4. 增加带轮加工装夹方便性
+
+# 通用范围
+z1_typical:
+  minimum: 10
+  preferred_range: [18, 36]
+  hard_limit_extra_high_speed: 60

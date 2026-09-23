@@ -1,0 +1,102 @@
+---
+data_source: DIN 8195-12《链条润滑》；台湾《油情报》图表 98；Tsubaki RS 系列链条润滑指南；GB/T 7631.12
+last_verified: 2026-09-20
+verification_status: single_source
+_todo: "需用 GB/T 7631.12 表 + 第二个独立信源（如 GB/T 3141 或 Renold/Tsubaki 原表）核对全部数值"
+unit_notes:
+  kinematic_viscosity: cSt@40 deg C
+  ISO_VG: ISO 3448
+---
+
+# 链条润滑油选型 —— 链速 + 加油方式 → ISO VG
+# 适用：滚子链、套筒链、无声链；常温 ~ 高温（矿物油区间）
+# 用法：先由 z1、p、n1 计算链速 v（m/s），再按加油方式查表
+
+by_speed_and_method:
+  high_speed_oil_bath:
+    speed_class: v >= 5 m/s
+    viscosity_range_cSt_40: [77, 117]
+    ISO_VG_recommended: 100
+    additives: AW + R&O
+    base_oil_class: mineral_or_PAO
+    notes: "油浴保持液面浸没链入链轮下缘，链速高便于飞溅润滑"
+
+  high_speed_spray:
+    speed_class: v >= 5 m/s
+    viscosity_range_cSt_40: [45, 72]
+    ISO_VG_recommended: [46, 68]
+    additives: AW + R&O + 黏附剂
+    base_oil_class: mineral_or_PAO
+    notes: "喷雾润滑每分钟 5~10 次喷量，按厂商样本定；典型用于输送线、传动链"
+
+  low_speed_hand:
+    speed_class: v < 5 m/s
+    viscosity_range_cSt_40: [135, 320]
+    ISO_VG_recommended: [150, 220, 320]
+    additives: AW + R&O + 黏附剂
+    base_oil_class: mineral
+    notes: "低速高负载手加油每班 1~2 次；黏度高有助于油膜稳定"
+
+  low_speed_drip:
+    speed_class: v < 5 m/s
+    viscosity_range_cSt_40: [135, 320]
+    ISO_VG_recommended: [220, 320]
+    additives: AW + R&O + 黏附剂
+    base_oil_class: mineral
+    notes: "滴油杯每分钟 5~20 滴；高黏度保证渗透到销-套筒"
+
+  high_temp_alt:
+    temperature_class: T_work >= 100 deg C
+    ISO_VG_recommended: [220, 320]
+    base_oil_class: PAO_or_ester
+    notes: "高温时矿物油黏度衰减大、寿命短；改合成油；常用于烤漆线、热处理炉"
+
+  dust_or_wet_alt:
+    environment: dust_or_wet
+    ISO_VG_recommended: null
+    fallback: 润滑脂
+    grease_NLGI: [1, 2]
+    grease_thickener: 锂基_复合锂_聚脲
+    notes: "粉尘或水汽环境润滑脂优于油；但销-套筒间隙小，普通脂难渗入，需用含固体润滑剂（MoS2 / 石墨）的脂"
+
+# Tsubaki 链条润滑建议（按链号 + 加油方式 + 温度）
+# 来源：tsubakimoto.co.jp Q9 链条润滑
+tsubaki_recommendation:
+  temperature_bands:
+    - T_band: "-10~0 deg C"
+      small_pitch_RS_lt_50: [SAE10W, SAE20]
+      RS60_RS80: [SAE20]
+      RS100: [SAE20]
+      RS120_and_larger: [SAE30]
+    - T_band: "0~40 deg C"
+      small_pitch_RS_lt_50: [SAE20, SAE30]
+      RS60_RS80: [SAE30]
+      RS100: [SAE30]
+      RS120_and_larger: [SAE30, SAE40]
+    - T_band: "40~50 deg C"
+      small_pitch_RS_lt_50: [SAE30]
+      RS60_RS80: [SAE40]
+      RS100: [SAE40]
+      RS120_and_larger: [SAE40]
+    - T_band: "50~60 deg C"
+      small_pitch_RS_lt_50: [SAE40]
+      RS60_RS80: [SAE50]
+      RS100: [SAE50]
+      RS120_and_larger: [SAE50]
+  notes: "Tsubaki 默认 R&O 矿物油；用户常温（40~70 deg C）应取 SAE 30~40，相当于 ISO VG 100"
+
+# 链条润滑油 vs 润滑脂 决策
+oil_vs_grease_decision:
+  use_oil_when:
+    - "高速（v >= 5 m/s）"
+    - "销-套筒需频繁渗透润滑"
+    - "需带走摩擦热"
+    - "可装油杯/油浴/喷雾系统"
+  use_grease_when:
+    - "粉尘/水汽环境"
+    - "加油不便或长时间免维护"
+    - "低速、间隙不大"
+    - "需要黏附防止滴落"
+  hybrid_solution:
+    - "初期润滑脂 + 周期补油（脂打底）"
+    - "喷雾系统 + 密封罩"

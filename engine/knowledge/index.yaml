@@ -1,0 +1,227 @@
+# 知识缓存索引
+# 该文件由 scripts/cache_manager.py 维护，不要手动编辑 cache_path 和 last_verified 字段
+
+schema_version: 1
+last_updated: 2026-09-20
+
+materials:
+  synchronous_belt:
+    standard: GB/T 11362-2021
+    name_zh: 同步带（梯形齿）
+    name_en: synchronous_belt (trapezoidal)
+    workflow: workflows/synchronous_belt.md
+    cache_dir: knowledge/cache/synchronous_belt
+    last_verified: 2026-09-17
+    verified: false  # 大部分表为单源占位，正式使用前需按 references/source_priority.md 双源核验
+    todo:
+    - condition_factors: 需对照 GB/T 11362 表核查 K_A 取值
+    - belt_pitch: 需对照 GB/T 11362 表核对节距系列
+    - pulley_teeth_min: 需对照 GB/T 11362 核对 z1min
+    - belt_length_series: 需对照 GB/T 11362 核对标准节线长
+    - belt_width_series: 需对照 GB/T 11362 核对标准带宽
+    - rated_power: 需用 GB/T 11362 表核对 P0（不同带型/齿数/转速组合）
+    files:
+    - condition_factors.yaml
+    - belt_pitch.yaml
+    - pulley_teeth_min.yaml
+    - belt_length_series.yaml
+    - belt_width_series.yaml
+    - rated_power.yaml
+  lubricant:
+    standard: GB/T 7631.12 / ISO 3448 / DIN 8195-12
+    name_zh: 润滑油（链条 / 开式齿轮 / 导轨）
+    name_en: lubricant (chain / open gear / rail)
+    workflow: workflows/lubricant.md
+    cache_dir: knowledge/cache/lubricant
+    last_verified: 2026-09-20
+    verified: false  # 新建物料，全部 single_source 待复核
+    todo:
+    - chain_viscosity: 需 GB/T 7631.12 表 + 第二个独立信源核对
+    - open_gear_viscosity: 需 AGMA 9004 表 + Mobil/克鲁勃样本核对
+    - rail_viscosity: 需 Vickers 导轨油手册 + 第二个信源核对
+    - iso_vg: ISO 3448 标准已用，其余表为单源
+    - additive_functions: 添加剂化学名与剂量需厂商 MSDS 核验
+    files:
+    - chain_viscosity.yaml
+    - open_gear_viscosity.yaml
+    - rail_viscosity.yaml
+    - iso_vg.yaml
+    - additive_functions.yaml
+
+# 采购关键词模板（不按物料分文件，集中在一个配置里；不属于国标数据，无需双源核验）
+  bolt:
+    standard: GB/T 196 · GB/T 3098.1-2010 · GB/T 16823.1-1997
+    name_zh: 螺栓（受拉紧螺栓连接）
+    workflow: workflows/bolt.md
+    cache_dir: knowledge/cache/bolt
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - property_class: 1) 电子转载非标准原件；标 🟢 需 GB/T 3098.1-2010 原件核对。 2) 
+        本表用的是**公称值**。GB/T 3098.1 对 8.8 / 9.8 按直径分档另给最小值 （如 9.8 级 d≤16mm 与 d>16mm
+        的 …
+    - safety_factor: 1) **合金钢 + 不控制预紧力 一整档没有录入**——信源只给了笼统的「5.0~5.5」， 没有按 M6~M16 
+        / M16~M30 / M30~M60 分档，硬填等于编数。选到这个组合会如实报数据缺失。 需用成大先《机械设计手册》或濮…
+    - thread_series: 1) 两处电子转载是同一份国标的两次转写，不构成两个独立信源；标 🟢 需标准原件或纸质手册核对。 2) 
+        已发现一处转写错误：易紧通把 M30 的 As 记作 581，与另一处转载的 560.6 及公式复算值 560.6 差 3.6%， 判为…
+    - torque_coeff: 1) **两处信源对磷化表面的 K 有实质冲突**：手册口径 0.11~0.15（磷化高强度螺栓）， 论文口径 
+        0.18~0.25（干态磷化）。差异可能来自是否磷皂化处理与是否润滑。 本表两个口径分列为两项、各自标注，**没有取平均、没有合…
+    files:
+    - property_class.yaml
+    - safety_factor.yaml
+    - thread_series.yaml
+    - torque_coeff.yaml
+  key:
+    standard: GB/T 1095-2003 · GB/T 1096-2003
+    name_zh: 普通平键（静连接）
+    workflow: workflows/key.md
+    cache_dir: knowledge/cache/key
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - allowable_stress: 1) 只有一格（铸铁·轻微冲击）拿到了独立复核，其余五格仍是单一信源。 标 🟢 需成大先《机械设计手册》表 
+        6-3-17 原表逐格核对。 2) **许用切应力 [τ] 没有录入**，所以剪切校核未实现。普通平键的主要失效形式是 较弱工作面被…
+    - keyway_dimensions: 1) **尺寸数值只有一处结构化转载**，另一处（gongcha.cc 键槽查询）是动态生成的表单， 
+        抓不到静态数值，未能逐格互校。标 🟢 前必须用 GB/T 1095-2003 原件或纸质手册逐行核对。 2) 只录了尺寸与槽深。公差带（较…
+    files:
+    - allowable_stress.yaml
+    - keyway_dimensions.yaml
+  shaft:
+    standard: 机械设计手册 · 轴的强度计算
+    name_zh: 轴（按扭转强度初估轴径）
+    workflow: workflows/shaft.md
+    cache_dir: knowledge/cache/shaft
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - material_stress: 1) **两处信源是两套不同口径，不是简单的转写差异。** 逐行对照： Q235A/20 —— 甲 15~25，乙
+        12~20；35 —— 甲 20~35，乙 20~30； 40Cr 等 —— 甲 35~55，乙 40~52。本表按 ref…
+    files:
+    - material_stress.yaml
+  spring:
+    standard: GB/T 1239.2 · GB/T 2089
+    name_zh: 圆柱螺旋压缩弹簧
+    workflow: workflows/spring.md
+    cache_dir: knowledge/cache/spring
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - spring_design: 1) **I 类与 II 类的许用切应力比没有录入。** 只有 III 类的 0.5 拿到了带算例的确认， I 类与 
+        II 类常被引作 0.3 与 0.4，但没检索到可核对的出处。硬填等于编数， 选到这两类会如实报数据缺失。需用 GB/T …
+    files:
+    - spring_design.yaml
+  bearing:
+    standard: GB/T 6391-2010 · ISO 281:2007
+    name_zh: 滚动轴承（基本额定寿命校核）
+    workflow: workflows/bearing.md
+    cache_dir: knowledge/cache/bearing
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - life_calc: 1) **X / Y 系数表没有录入。** 它按 Fa/C0 与轴承类型分档，是 GB/T 6391 / ISO 281 
+        的正表，检索不到可核对的完整数值。本工作流改由用户从**轴承样本**填 X、Y—— 样本上 X、Y 与 C、C0 印在…
+    files:
+    - life_calc.yaml
+  coupling:
+    standard: GB/T 5014 · JB/T 7511 · 厂商样本
+    name_zh: 联轴器（计算转矩与选型校核）
+    workflow: workflows/coupling.md
+    cache_dir: knowledge/cache/coupling
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - condition_factors: 1) **工作机工况系数没有录入。** 它按工作机的冲击、振动、正反转、制动、 频繁启动分类，各厂商样本与 
+        JB/T 7511 的口径不完全一致。 本工作流改为必填输入，应当用你所选联轴器样本里的那张表。 2) 动力机系数 Kw 为单一信源…
+    files:
+    - condition_factors.yaml
+  reducer:
+    standard: 机械设计基础 表 3-1 · 厂商样本
+    name_zh: 减速器（传动装置参数与选型转矩）
+    workflow: workflows/reducer.md
+    cache_dir: knowledge/cache/reducer
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - transmission: 1) 教材为第 5 级信源（按 references/source_priority.md 分级）， 
+        用于传动效率这类工程经验值尚可，但**标 🟢 需成大先《机械设计手册》或国标原表核对**。 2) 只录了表 3-1 覆盖的传动型式。**行…
+    files:
+    - transmission.yaml
+  chain:
+    standard: GB/T 1243
+    name_zh: 滚子链传动（几何与运动学）
+    workflow: workflows/chain.md
+    cache_dir: knowledge/cache/chain
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - chain_pitch: 1) **只录了节距。** 检索到的滚子链参数表在转载时列与表头错位 
+        （把销轴直径当成了内链节内宽、把链板高度当成了极限拉伸载荷）， 数值不可信，因此滚子直径 d1、排距 pt、内宽 
+        b1、极限拉伸载荷**一律未录**。 节距之所以敢录，是…
+    files:
+    - chain_pitch.yaml
+  seal:
+    standard: GB/T 3452.1-2005 · GB/T 3452.3-2005 · GB/T 3452.5-2022
+    name_zh: O 形密封圈（压缩率与材料适用性）
+    workflow: workflows/seal.md
+    cache_dir: knowledge/cache/seal
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - oring: 1) **沟槽尺寸表（GB/T 3452.3-2005）没有录入**——检索到的都是付费或被网络策略拦截。 
+        因此沟槽深度、宽度由用户从标准或图纸填，引擎负责算压缩率与填充率。 2) **压缩率与填充率的合格判据没有录入**（判据在 GB/T…
+    files:
+    - oring.yaml
+  gear:
+    standard: GB/T 1356 · GB/T 3480
+    name_zh: 渐开线圆柱齿轮（几何计算与接触应力核算）
+    workflow: workflows/gear.md
+    cache_dir: knowledge/cache/gear
+    last_verified: '2026-09-22'
+    verified: false
+    todo:
+    - gear_basic: 1) **模数系列（GB/T 1357）没有录入**——检索不到可核对的完整数值。 因此模数是用户输入，引擎不做圆整。 2)
+        **ZH（节点区域系数）、YFa / YSa（齿形与应力修正系数）、σHlim / σFlim（材料疲劳极限） 全…
+    files:
+    - gear_basic.yaml
+procure:
+  config: knowledge/procure/keyword_templates.yaml
+  config_source: 内部整理 —— 电商平台搜索 URL 结构 + 各物料采购关键词构成规则
+  last_updated: 2026-09-21
+  verification_status: self_defined
+  channels:
+  - taobao
+  - tmall
+  - alibaba1688
+  - jd
+  material_templates:
+  - lubricant
+  - synchronous_belt
+  - bearing
+  - fastener
+  - gear
+  - coupling
+  - chain
+  - reducer
+  - seal
+  - generic
+  todo:
+  - 平台搜索 URL 若变更需同步更新 channels 段
+  - 新物料工作流建立时同步补 keyword_order
+
+# 尚未建立工作流的常见物料（待补）
+# 以前这段是注释，程序读不到；改成真键后，软件首页的物料入口即可数据驱动，
+# 新增待办物料只改这里，不动前端代码。
+planned_materials: []
+material_icons:
+  synchronous_belt: "⏱"
+  lubricant: "🛢"
+  bolt: "🔩"
+  key: "▬"
+  shaft: "│"
+  spring: "⌇"
+  bearing: "◉"
+  coupling: "⇄"
+  reducer: "▤"
+  chain: "⛓"
+  seal: "◎"
+  gear: "⚙"

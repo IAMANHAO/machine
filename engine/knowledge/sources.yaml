@@ -1,0 +1,51 @@
+# 信源优先级配置（与 references/source_priority.md 保持一致）
+schema_version: 1
+
+# 优先级 1（最高）：国家标准
+national_standards:
+  - GB       # 强制性国标
+  - GB/T     # 推荐性国标
+  - JB/T     # 机械行业标准
+  - HJ/T     # 环保行业标准
+  - YS/T     # 有色金属行业标准
+  - CB       # 船舶行业标准
+
+# 优先级 2：权威机械设计手册
+handbooks:
+  - name: 成大先《机械设计手册》
+    publisher: 化学工业出版社
+    typical_use: 工况系数、推荐做法、综合流程
+  - name: 濮良贵《机械设计》
+    publisher: 高等教育出版社
+    typical_use: 高校教学、基础流程
+  - name: 邱宣怀《机械设计》
+    publisher: 高等教育出版社
+    typical_use: 高校经典教材
+
+# 优先级 3：国际标准
+international_standards:
+  - ISO
+  - DIN
+  - AGMA
+  - JIS
+  - BS
+
+# 优先级 4：知名厂商样本
+manufacturers:
+  bearings: [SKF, NSK, FAG, NTN, Timken, ZWZ, LYC]
+  belts: [Gates, ContiTech, Mitsuboshi, Optibelt, 哈金森]
+  gears_reducer: [SEW, Flender, Nord, Siemens, SEW-Eurodrive]
+  couplings: [R+W, KTR, Lovejoy, 阪东, 三星]
+
+# 优先级 5：技术文章 / 教材
+# 仅作为补充理解，不能作为唯一依据
+
+# 交叉验证门槛
+validation:
+  required_sources_for:
+    work_condition_coefficient: 2   # 工况系数至少 2 个信源
+    safety_factor: 2                 # 安全系数至少 2 个信源（含手册 + 标准）
+    standard_series: 1               # 标准系列以国标为准（1 个信源即可）
+    rated_power: 1                   # 额定功率表以国标或厂商样本为准
+  conflict_resolution: 'higher_priority_wins'   # 信源冲突时取更高优先级
+  conservative_when_tied: true       # 同级冲突时取保守值

@@ -1,0 +1,24 @@
+[project]
+name = "mds-app"
+version = "0.1.0"
+description = "机械设计物料选型引擎 —— 本地服务 + 跨端前端"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.6",
+    "keyring>=24",            # 凭据存系统凭据库，绝不落明文
+    "httpx>=0.27",            # AI provider 客户端
+    "ruamel.yaml>=0.18",      # 编辑缓存时保留文件里的注释
+    "reportlab>=4",           # PDF 导出（内置 CJK 字体，无需外带字体文件）
+    "openpyxl>=3.1",          # Excel 导出
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx2", "pypdf>=4"]
+
+[tool.pytest.ini_options]
+# 引擎测试与 API 测试一起跑：引擎住在 engine/（那也是 workflows/knowledge 的家）
+testpaths = ["tests", "engine/tests"]
+addopts = "-q"

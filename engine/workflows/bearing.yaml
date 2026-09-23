@@ -1,0 +1,229 @@
+## 滚动轴承 寿命校核 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/bearing.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: bearing
+name_zh: 滚动轴承（基本额定寿命校核）
+standard: GB/T 6391-2010 · ISO 281:2007
+workflow_doc: workflows/bearing.md
+
+notes:
+  - "**不自建轴承型号库。** 基本额定动载荷 C、静载荷 C0、系数 X 与 Y 全部由用户从
+     **轴承样本**填入。这不是偷懒：这几个数印在样本同一页上，抄它们比抄一张
+     来路不明的系数表可靠；而且不同厂商同一型号的 C 值确实有差异，
+     自建型号库反而会给出错的数。"
+  - "**X / Y 系数表没有录入。** 它按 Fa/C0 与轴承类型分档，是 GB/T 6391 / ISO 281 的正表，
+     检索不到可核对的完整数值。纯径向载荷这一档的 X=1、Y=0 是定义性的，可以直接算；
+     联合载荷必须从样本抄。"
+  - "**引擎不判断 Fa/Fr 与 e 的大小关系**——e 同样要查样本。
+     选「纯径向」这一档前，请自行确认 Fa = 0 或 Fa/Fr ≤ e，否则结果偏危险。"
+  - "只算**基本额定寿命 L10**。ISO 281 的修正额定寿命 Lnm（计入可靠度、材料、
+     润滑污染的 aISO 系数）未实现——aISO 是三维线图，读不出数。
+     对可靠度有要求的场合必须另行按样本修正。"
+  - "**静强度校核（C0 与当量静载荷 P0）未实现。** 低速重载或有冲击的轴承常常是
+     静载荷定型号而非寿命，需要 X0/Y0 系数表，同样没有。"
+
+inputs:
+  - id: Fr
+    name_zh: 径向载荷
+    unit: N
+    required: true
+    domain: {min: 0, max: 100000000}
+
+  - id: Fa
+    name_zh: 轴向载荷
+    unit: N
+    required: true
+    default: 0
+    domain: {min: 0, max: 100000000}
+
+  - id: n
+    name_zh: 转速
+    unit: r/min
+    required: true
+    domain: {min: 0.1, max: 100000}
+
+  - id: C
+    name_zh: 基本额定动载荷 C
+    unit: N
+    required: true
+    domain: {min: 100, max: 100000000}
+    hint: 从轴承样本抄。与型号一一对应，不同厂商同型号也可能不同
+
+  - id: rolling_element
+    name_zh: 滚动体型式
+    type: enum
+    required: true
+    default: ball
+    options_from: {table: life_calc, path: exponents, label: name_zh}
+    hint: 决定寿命指数 ε：球轴承点接触 ε=3，滚子轴承线接触 ε=10/3
+
+  - id: load_case
+    name_zh: 载荷情况
+    type: enum
+    required: true
+    default: pure_radial
+    options:
+      - {value: pure_radial, label: 纯径向（Fa=0 或 Fa/Fr ≤ e）}
+      - {value: combined, label: 联合载荷（需从样本填 X、Y）}
+
+  - id: X_in
+    name_zh: 径向动载荷系数 X
+    required_when: "load_case == 'combined'"
+    domain: {min: 0.1, max: 1.0}
+    hint: 从轴承样本按 Fa/C0 与 Fa/Fr 查取
+
+  - id: Y_in
+    name_zh: 轴向动载荷系数 Y
+    required_when: "load_case == 'combined'"
+    domain: {min: 0, max: 5}
+    hint: 从轴承样本按 Fa/C0 与 Fa/Fr 查取
+
+  - id: fp
+    name_zh: 载荷系数 fp
+    required: true
+    default: 1.2
+    domain: {min: 1.0, max: 3.0}
+    hint: 计入冲击与振动。按你所用样本里的 fp 表取——各厂商口径不一致
+
+  - id: Lh_required
+    name_zh: 预期寿命
+    unit: h
+    required: true
+    default: 20000
+    domain: {min: 100, max: 500000}
+    hint: 按机械类型定，如一般机械 8000~12000 h、连续运转 40000~60000 h
+
+result:
+  - {label: 载荷情况, value: "{load_case_label}"}
+  - {label: 径向动载荷系数 X, value: "{X}"}
+  - {label: 轴向动载荷系数 Y, value: "{Y}"}
+  - {label: 当量动载荷 P, value: "{P}", unit: N}
+  - {label: 基本额定动载荷 C, value: "{C}", unit: N}
+  - {label: 承载能力比 C/P, value: "{C_over_P}"}
+  - {label: 寿命指数 ε, value: "{epsilon}"}
+  - {label: 基本额定寿命 L10h, value: "{L10h}", unit: h}
+  - {label: 预期寿命, value: "{Lh_required}", unit: h}
+  - {label: 采购关键字, value: "滚动轴承 额定动载荷{C}N"}
+
+probe:
+  base:
+    n: 1450
+    fp: 1.2
+    Lh_required: 20000
+    rolling_element: ball
+  cases:
+    - {name: 纯径向·寿命充足, Fr: 3000, Fa: 0, C: 30000, load_case: pure_radial}
+    - {name: 纯径向·寿命不足, Fr: 9000, Fa: 0, C: 30000, load_case: pure_radial}
+    - {name: 联合载荷·样本填 X/Y, Fr: 3000, Fa: 1500, C: 30000, load_case: combined, X_in: 0.56, Y_in: 1.45}
+    - {name: 滚子轴承·线接触, Fr: 8000, Fa: 0, C: 60000, load_case: pure_radial, rolling_element: roller}
+    - {name: 低速重载, Fr: 50000, Fa: 0, C: 200000, load_case: pure_radial, n: 10}
+
+procure:
+  material_template: bearing
+  channels: [taobao, tmall, jd]
+  fields:
+    kind: 滚动轴承
+
+steps:
+  # ---------- 第 1 步：载荷系数 ----------
+  - id: label_radial
+    name_zh: 载荷情况
+    kind: text
+    when: "load_case == 'pure_radial'"
+    template: 纯径向
+    outputs: [load_case_label]
+
+  - id: label_combined
+    name_zh: 载荷情况
+    kind: text
+    when: "load_case == 'combined'"
+    template: 联合载荷
+    outputs: [load_case_label]
+
+  - id: X_radial
+    name_zh: 径向动载荷系数（纯径向）
+    kind: table_lookup
+    when: "load_case == 'pure_radial'"
+    table: life_calc
+    key: "pure_radial.X"
+    note: "纯径向时 X=1、Y=0 是定义性的，不需要查系数表"
+    outputs: [X]
+
+  - id: Y_radial
+    name_zh: 轴向动载荷系数（纯径向）
+    kind: table_lookup
+    when: "load_case == 'pure_radial'"
+    table: life_calc
+    key: "pure_radial.Y"
+    outputs: [Y]
+
+  - id: X_combined
+    name_zh: 径向动载荷系数（样本填入）
+    kind: default
+    when: "load_case == 'combined'"
+    from_input: X_in
+    fallback: "0"
+    outputs: [X]
+
+  - id: Y_combined
+    name_zh: 轴向动载荷系数（样本填入）
+    kind: default
+    when: "load_case == 'combined'"
+    from_input: Y_in
+    fallback: "0"
+    outputs: [Y]
+
+  # ---------- 第 2 步：当量动载荷 ----------
+  - id: P
+    name_zh: 当量动载荷
+    kind: formula
+    expr: "fp * (X * Fr + Y * Fa)"
+    unit: N
+    source: {ref: "P = fp (X·Fr + Y·Fa)，GB/T 6391" }
+    outputs: [P]
+
+  - id: chk_P_positive
+    name_zh: 当量动载荷有效性校核
+    kind: check
+    value: P
+    op: ">"
+    limit: "0"
+    unit: N
+    on_fail: 当量动载荷为零，说明径向与轴向载荷都填了 0，无法计算寿命
+
+  - id: C_over_P
+    name_zh: 承载能力比
+    kind: formula
+    expr: "C / P"
+    note: "寿命对这个比值是 ε 次方关系——C/P 提高一倍，球轴承寿命提高 8 倍"
+    outputs: [C_over_P]
+
+  # ---------- 第 3 步：额定寿命 ----------
+  - id: epsilon
+    name_zh: 寿命指数
+    kind: table_lookup
+    table: life_calc
+    key: "exponents.{rolling_element}.epsilon"
+    note: "由滚动体与滚道的接触形式决定，是 ISO 281 的定义值"
+    outputs: [epsilon]
+
+  - id: L10h
+    name_zh: 基本额定寿命
+    kind: formula
+    expr: "1000000 / (60 * n) * C_over_P ** epsilon"
+    unit: h
+    source: {ref: "L10h = (10⁶/60n)(C/P)^ε，GB/T 6391" }
+    outputs: [L10h]
+
+  - id: chk_life
+    name_zh: 寿命校核
+    kind: check
+    value: L10h
+    op: ">="
+    limit: Lh_required
+    unit: h
+    on_fail: 改用额定动载荷更大的轴承（加大尺寸系列或改用滚子轴承）、降低载荷、或降低预期寿命要求
+    source: {ref: "L10h ≥ 预期寿命" }

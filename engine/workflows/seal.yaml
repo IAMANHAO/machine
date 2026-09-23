@@ -1,0 +1,214 @@
+## O 形密封圈 选型校核 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/seal.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: seal
+name_zh: O 形密封圈（压缩率与材料适用性）
+standard: GB/T 3452.1-2005 · GB/T 3452.3-2005 · GB/T 3452.5-2022
+workflow_doc: workflows/seal.md
+
+notes:
+  - "**沟槽尺寸表（GB/T 3452.3）没有录入**——检索到的都是付费或被网络策略拦截。
+     所以沟槽深度与宽度由用户从标准或图纸填，引擎负责算压缩率与填充率。"
+  - "**压缩率与填充率只报数，不判定。** 合格判据在 GB/T 3452.3 里，缓存中没有。
+     凭印象设一个阈值等于编了一条判据——引擎把算出来的数交给你，
+     判定请对照标准原文或厂商设计手册。"
+  - "材料温度范围两处信源差异很大（如 NBR 甲 −55~150、乙 −25~100）。
+     本表取**保守交集**，各自原值记在数据表的 _todo 里。
+     差异多半源于「通用牌号」与「特定配方」的口径不同，**正式选用必须按厂商 PDS**。"
+  - "只覆盖 **O 形圈**。油封、Y 形圈、格莱圈、机械密封均未覆盖。
+     介质相容性只给了定性的适用/回避说明，**不做自动判定**——
+     相容性表是按具体介质逐条列的，缓存里没有。"
+
+inputs:
+  - id: d2_in
+    name_zh: O 圈截面直径
+    unit: mm
+    required: true
+    default: 2.65
+    domain: {min: 1.8, max: 7.0}
+    hint: GB/T 3452.1 的 d2 系列只有 1.8 / 2.65 / 3.55 / 5.3 / 7.0 五档，会自动取最接近的标准值
+
+  - id: d1
+    name_zh: O 圈内径
+    unit: mm
+    required: true
+    domain: {min: 1, max: 2000}
+    hint: 与 d2 一起构成规格（d1 × d2），两者都要给才能下单
+
+  - id: groove_depth
+    name_zh: 沟槽深度 h
+    unit: mm
+    required: true
+    domain: {min: 0.5, max: 10}
+    hint: 从 GB/T 3452.3 或你的图纸填
+
+  - id: groove_width
+    name_zh: 沟槽宽度 b
+    unit: mm
+    required: true
+    domain: {min: 0.5, max: 20}
+    hint: 同上
+
+  - id: material
+    name_zh: 材料
+    type: enum
+    required: true
+    default: nbr
+    options_from: {table: oring, path: materials, label: name_zh}
+
+  - id: T_work
+    name_zh: 工作温度
+    unit: ℃
+    required: true
+    domain: {min: -100, max: 400}
+    hint: 密封处的实际温度，不是环境温度
+
+result:
+  - {label: O 圈规格, value: "{spec_label}"}
+  - {label: 材料, value: "{material_label}"}
+  - {label: 适用温度下限, value: "{temp_min}", unit: ℃}
+  - {label: 适用温度上限, value: "{temp_max}", unit: ℃}
+  - {label: 适用介质, value: "{media}"}
+  - {label: 应避免, value: "{avoid}"}
+  - {label: 压缩率, value: "{compression}", unit: "%"}
+  - {label: 沟槽填充率, value: "{fill_ratio}", unit: "%"}
+  - {label: 采购关键字, value: "O形圈 {spec_label} {material_code}"}
+
+probe:
+  base:
+    d1: 40
+    groove_depth: 2.1
+    groove_width: 3.6
+    T_work: 60
+  cases:
+    - {name: NBR·常温液压, d2_in: 2.65, material: nbr}
+    - {name: FKM·高温, d2_in: 2.65, material: fkm, T_work: 180}
+    - {name: NBR·超温（应校核不通过）, d2_in: 2.65, material: nbr, T_work: 150}
+    - {name: EPDM·低温, d2_in: 3.55, material: epdm, T_work: -30, groove_depth: 2.8, groove_width: 4.8}
+    - {name: VMQ·宽温域, d2_in: 5.3, material: vmq, T_work: 150, groove_depth: 4.2, groove_width: 7.1}
+    - {name: FKM·低温不适用（应校核不通过）, d2_in: 2.65, material: fkm, T_work: -40}
+
+procure:
+  material_template: seal
+  channels: [taobao, 1688]
+  fields:
+    kind: O形圈
+    spec: "{spec_label}"
+
+steps:
+  # ---------- 第 1 步：截面直径取标准值 ----------
+  - id: d2
+    name_zh: 标准截面直径
+    kind: round_to_series
+    table: oring
+    path: "section_series.series"
+    value: d2_in
+    mode: nearest
+    what: 截面直径
+    unit: mm
+    note: "GB/T 3452.1 的 d2 只有 5 档。用圆整而不是下拉框，是为了让「你填的 2.7 被取成 2.65」
+      这件事出现在计算过程里，而不是悄悄发生在界面上"
+    outputs: [d2]
+
+  - id: spec_label
+    name_zh: 规格标注
+    kind: text
+    template: "{d1}×{d2}"
+    note: "O 圈按 内径 × 截面直径 标注，两者都要给"
+    outputs: [spec_label]
+
+  - id: material_label
+    name_zh: 材料名称
+    kind: table_lookup
+    table: oring
+    key: "materials.{material}.name_zh"
+    outputs: [material_label]
+
+  - id: material_code
+    name_zh: 材料代号
+    kind: text
+    template: "{material}"
+    outputs: [material_code]
+
+  # ---------- 第 2 步：压缩率与填充率 ----------
+  - id: compression
+    name_zh: 压缩率
+    kind: formula
+    expr: "(d2 - groove_depth) / d2 * 100"
+    unit: "%"
+    note: "纯算术。合格判据在 GB/T 3452.3，缓存里没有，所以只报数不判定"
+    source: {ref: "压缩率 = (d2 − h) / d2" }
+    outputs: [compression]
+
+  - id: fill_ratio
+    name_zh: 沟槽填充率
+    kind: formula
+    expr: "pi * d2 ** 2 / 4 / (groove_depth * groove_width) * 100"
+    unit: "%"
+    note: "O 圈截面积 ÷ 沟槽截面积。填充率过高时受热膨胀无处可去，会挤出失效"
+    source: {ref: "填充率 = (π d2²/4) / (h · b)" }
+    outputs: [fill_ratio]
+
+  - id: chk_compression_positive
+    name_zh: 压缩率有效性校核
+    kind: check
+    value: compression
+    op: ">"
+    limit: "0"
+    unit: "%"
+    on_fail: 沟槽深度不小于截面直径，O 圈没有被压缩，无法密封——请核对沟槽尺寸
+
+  # ---------- 第 3 步：材料温度适用性 ----------
+  - id: temp_min
+    name_zh: 适用温度下限
+    kind: table_lookup
+    table: oring
+    key: "materials.{material}.temp_min"
+    unit: ℃
+    outputs: [temp_min]
+
+  - id: temp_max
+    name_zh: 适用温度上限
+    kind: table_lookup
+    table: oring
+    key: "materials.{material}.temp_max"
+    unit: ℃
+    outputs: [temp_max]
+
+  - id: media
+    name_zh: 适用介质
+    kind: table_lookup
+    table: oring
+    key: "materials.{material}.media"
+    outputs: [media]
+
+  - id: avoid
+    name_zh: 应避免的介质
+    kind: table_lookup
+    table: oring
+    key: "materials.{material}.avoid"
+    note: "介质相容性只给定性说明，**不做自动判定**——相容性表是按具体介质逐条列的"
+    outputs: [avoid]
+
+  - id: chk_temp_hi
+    name_zh: 温度上限校核
+    kind: check
+    value: T_work
+    op: "<="
+    limit: temp_max
+    unit: ℃
+    on_fail: 超出该材料的适用上限，改用耐温更高的材料（如 FKM 或 VMQ）
+    source: {ref: "GB/T 3452.5 弹性体材料规范" }
+
+  - id: chk_temp_lo
+    name_zh: 温度下限校核
+    kind: check
+    value: T_work
+    op: ">="
+    limit: temp_min
+    unit: ℃
+    on_fail: 低于该材料的适用下限，低温下会硬化失去弹性；改用耐寒材料（如 VMQ 或 EPDM）
+    source: {ref: "GB/T 3452.5 弹性体材料规范" }

@@ -1,0 +1,94 @@
+---
+data_source: GB/T 3098.1-2010《紧固件机械性能 螺栓、螺钉和螺柱》（等效 ISO 898-1）性能等级标记规则与力学性能表
+second_source: 两处独立电子转载互校 —— 中山信纯紧固件 xc727.com（GB/T 3098.1-2010 条文与性能表）；标记规则本身可由等级代号复算
+verification_status: single_source
+last_verified: 2026-09-22
+_todo: "1) 电子转载非标准原件；标 🟢 需 GB/T 3098.1-2010 原件核对。
+  2) 本表用的是**公称值**。GB/T 3098.1 对 8.8 / 9.8 按直径分档另给最小值
+     （如 9.8 级 d≤16mm 与 d>16mm 的 Rm 最小值不同），本表未录入分档最小值，
+     设计取公称值偏保守。需要按最小值校核时必须查原件。
+  3) 检索中发现 finesz.com 的同名表整体错行（把 4.8 的 Rm 记作 500），未采用。"
+unit_notes:
+  Rm: MPa
+  sigma_s: MPa
+---
+
+# 螺栓性能等级 —— 公称抗拉强度 Rm 与公称屈服强度 σs
+#
+# ── 等级代号本身就是数据来源 ──
+#
+# GB/T 3098.1 规定：代号由小数点隔开的两部分数字组成。
+#   点左边  = 公称抗拉强度 Rm 的 1/100（MPa）
+#   点右边  = 屈强比 × 10
+# 即：  Rm = 左 × 100        σs = Rm × 右 / 10
+#
+# 例：8.8 → Rm = 800 MPa，屈强比 0.8，σs = 640 MPa。
+#
+# 所以这张表不是"抄来的一组数"，而是**规则的展开**——
+# tests/test_bolt.py 会按上面两式逐行复算校验。
+#
+# 注：4.8 / 5.8 / 6.8 的屈服值在标准里是规定非比例延伸应力（Rpf / Rp0.2），
+# 不是下屈服强度 ReL；工程上同样用于算许用应力，但报告里不要写成"屈服强度"。
+#
+# ── 键为什么写成 c8_8 而不是 8.8 ──
+# 查表路径以点分段（classes.{grade}.sigma_s），键里带点会被拆成两段。
+# 真正的等级代号放在 code 字段里，显示与采购关键词都取它。
+
+classes:
+  c4_6:
+    code: "4.6"
+    name_zh: 4.6 级（低碳钢，普通用途）
+    Rm: 400
+    sigma_s: 240
+    material_hint: carbon_steel
+  c4_8:
+    code: "4.8"
+    name_zh: 4.8 级（低碳钢，冷镦）
+    Rm: 400
+    sigma_s: 320
+    material_hint: carbon_steel
+  c5_6:
+    code: "5.6"
+    name_zh: 5.6 级（中碳钢）
+    Rm: 500
+    sigma_s: 300
+    material_hint: carbon_steel
+  c5_8:
+    code: "5.8"
+    name_zh: 5.8 级（中碳钢，冷镦）
+    Rm: 500
+    sigma_s: 400
+    material_hint: carbon_steel
+  c6_8:
+    code: "6.8"
+    name_zh: 6.8 级（中碳钢）
+    Rm: 600
+    sigma_s: 480
+    material_hint: carbon_steel
+  c8_8:
+    code: "8.8"
+    name_zh: 8.8 级（中碳钢淬火回火 / 合金钢，最常用高强度等级）
+    Rm: 800
+    sigma_s: 640
+    material_hint: alloy_steel
+  c9_8:
+    code: "9.8"
+    name_zh: 9.8 级（中碳合金钢淬火回火）
+    Rm: 900
+    sigma_s: 720
+    material_hint: alloy_steel
+  c10_9:
+    code: "10.9"
+    name_zh: 10.9 级（合金钢淬火回火）
+    Rm: 1000
+    sigma_s: 900
+    material_hint: alloy_steel
+  c12_9:
+    code: "12.9"
+    name_zh: 12.9 级（合金钢淬火回火，最高常用等级）
+    Rm: 1200
+    sigma_s: 1080
+    material_hint: alloy_steel
+
+# material_hint 只是选材料类别时的提示，不参与计算：
+# 8.8 级既可能是中碳钢调质也可能是合金钢，安全系数该按哪一行查由用户确认。

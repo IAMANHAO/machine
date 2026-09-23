@@ -1,0 +1,294 @@
+## 圆柱螺旋压缩弹簧 选型校核 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/spring.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: spring
+name_zh: 圆柱螺旋压缩弹簧
+standard: GB/T 1239.2 · GB/T 2089
+workflow_doc: workflows/spring.md
+
+notes:
+  - "**钢丝直径 d 由用户填，引擎不替你选。** GB/T 1358 的弹簧钢丝直径系列检索不到
+     可核对的数值（都是付费或图片形式），所以不做圆整。引擎算出所需最小直径 d_min，
+     再校核你填的实际钢丝直径够不够——这样每一步都说得出出处。"
+  - "**切变模量 G 是必填输入，不是查表来的。** 常用弹簧钢的 G 值差别不大，
+     但把一个查不到出处的数写进表里，不如让你从材料证书上抄。"
+  - "**I 类与 II 类的许用切应力比没有数据。** 只有 III 类的 0.5 拿到了带算例的确认。
+     I / II 类常被引作 0.3 与 0.4，但没检索到可核对的出处，硬填等于编数。
+     选到这两类会如实报缺口——也可以改用「手工指定 [τ]」，直接从你手上的材料标准填。"
+  - "**自由高度 H0 是输入不是输出。** 完整算 H0 需要节距、支承圈型式与并紧磨平量，
+     那几个系数缓存里没有。实际设计中 H0 通常由安装空间先定下来，
+     所以本工作流收 H0 作为输入，负责校核稳定性。"
+  - "只覆盖**圆柱螺旋压缩弹簧、圆截面钢丝**。拉伸弹簧、扭转弹簧、
+     变节距/圆锥弹簧、矩形截面丝均不适用。疲劳寿命校核未实现。"
+
+inputs:
+  - id: F_max
+    name_zh: 最大工作载荷
+    unit: N
+    required: true
+    domain: {min: 0.1, max: 1000000}
+
+  - id: F_min
+    name_zh: 最小工作载荷
+    unit: N
+    required: true
+    default: 0
+    domain: {min: 0, max: 1000000}
+    hint: 预压状态下的载荷，无预压填 0
+
+  - id: stroke
+    name_zh: 工作行程
+    unit: mm
+    required: true
+    domain: {min: 0.1, max: 2000}
+    hint: 从最小载荷到最大载荷之间压缩量的变化
+
+  - id: d
+    name_zh: 钢丝直径
+    unit: mm
+    required: true
+    domain: {min: 0.2, max: 60}
+    hint: 填实际可采购的钢丝直径；引擎会校核它是否满足强度
+
+  - id: C
+    name_zh: 旋绕比 C = D2 / d
+    required: true
+    default: 6
+    domain: {min: 4, max: 16}
+    hint: 常用 5~8。过小卷绕困难且应力集中大，过大弹簧过软易颤动
+
+  - id: G
+    name_zh: 材料切变模量
+    unit: MPa
+    required: true
+    domain: {min: 30000, max: 100000}
+    hint: 从钢丝的材料证书或厂商样本查取
+
+  - id: tau_source
+    name_zh: 许用切应力的来源
+    type: enum
+    required: true
+    default: from_class
+    options:
+      - {value: from_class, label: "按载荷类别与抗拉强度算（[τ] = 系数 × σb）"}
+      - {value: manual, label: 手工指定（从你手上的材料标准直接填）}
+
+  - id: load_class
+    name_zh: 载荷类别
+    type: enum
+    required_when: "tau_source == 'from_class'"
+    default: class_3
+    options_from: {table: spring_design, path: ratio_by_class, label: name_zh}
+
+  - id: sigma_b
+    name_zh: 钢丝抗拉强度 σb
+    unit: MPa
+    required_when: "tau_source == 'from_class'"
+    domain: {min: 300, max: 3000}
+    hint: 按钢丝直径与材料等级查材料标准，或直接抄供货材质证明书
+
+  - id: tau_in
+    name_zh: 许用切应力（手工指定）
+    unit: MPa
+    required_when: "tau_source == 'manual'"
+    domain: {min: 50, max: 1500}
+
+  - id: H0
+    name_zh: 弹簧自由高度
+    unit: mm
+    required: true
+    domain: {min: 1, max: 3000}
+    hint: 通常由安装空间先定下来。引擎用它校核稳定性
+
+  - id: end_support
+    name_zh: 端部约束型式
+    type: enum
+    required: true
+    default: both_free
+    options_from: {table: spring_design, path: stability_limits, label: name_zh}
+
+result:
+  - {label: 旋绕比 C, value: "{C}"}
+  - {label: 曲度系数 K, value: "{K}"}
+  - {label: "许用切应力 [τ]", value: "{tau_allow}", unit: MPa}
+  - {label: 所需最小钢丝直径, value: "{d_min}", unit: mm}
+  - {label: 实用钢丝直径 d, value: "{d}", unit: mm}
+  - {label: 弹簧中径 D2, value: "{D2}", unit: mm}
+  - {label: 弹簧外径 D, value: "{D_out}", unit: mm}
+  - {label: 有效圈数 n, value: "{n}"}
+  - {label: 弹簧刚度 k, value: "{k_spring}", unit: N/mm}
+  - {label: 最大工作变形, value: "{f_max}", unit: mm}
+  - {label: 最大工作切应力, value: "{tau_actual}", unit: MPa}
+  - {label: 高径比 b, value: "{b_ratio}"}
+  - {label: 采购关键字, value: "压缩弹簧 线径{d} 外径{D_out} 自由长{H0}"}
+
+probe:
+  base:
+    F_min: 0
+    stroke: 20
+    C: 6
+    G: 79000
+    H0: 50
+    end_support: one_fixed_one_free
+  cases:
+    - {name: III类·静载·合格, F_max: 200, d: 4, tau_source: from_class, load_class: class_3, sigma_b: 1400}
+    - {name: III类·钢丝偏细（应校核不通过）, F_max: 200, d: 2, tau_source: from_class, load_class: class_3, sigma_b: 1400}
+    - {name: 手工指定许用应力, F_max: 200, d: 4, tau_source: manual, tau_in: 700}
+    - {name: II类（表内无此系数）, F_max: 200, d: 4, tau_source: from_class, load_class: class_2, sigma_b: 1400}
+    - {name: I类（表内无此系数）, F_max: 200, d: 4, tau_source: from_class, load_class: class_1, sigma_b: 1400}
+
+procure:
+  material_template: generic
+  channels: [taobao, 1688]
+  fields:
+    kind: 压缩弹簧
+    spec: "线径{d} 外径{D_out} 自由长{H0}"
+
+steps:
+  # ---------- 第 1 步：许用切应力 ----------
+  - id: tau_ratio
+    name_zh: 许用切应力比
+    kind: table_lookup
+    when: "tau_source == 'from_class'"
+    table: spring_design
+    key: "ratio_by_class.{load_class}.tau_ratio"
+    note: "按载荷类别（循环次数）定。I 类与 II 类的系数没有可核对的出处，表里留空"
+    outputs: [tau_ratio]
+
+  - id: tau_from_class
+    name_zh: 许用切应力
+    kind: formula
+    when: "tau_source == 'from_class'"
+    expr: "tau_ratio * sigma_b"
+    unit: MPa
+    source: {ref: "[τ] = 系数 × σb" }
+    outputs: [tau_allow]
+
+  - id: tau_manual
+    name_zh: 许用切应力（手工指定）
+    kind: default
+    when: "tau_source == 'manual'"
+    from_input: tau_in
+    fallback: "0"
+    unit: MPa
+    outputs: [tau_allow]
+
+  # ---------- 第 2 步：几何与曲度系数 ----------
+  - id: K
+    name_zh: 曲度系数
+    kind: formula
+    expr: "(4 * C - 1) / (4 * C - 4) + 0.615 / C"
+    note: "Wahl 曲度系数，计入簧丝内侧的应力集中。这是定义式，不是查表值"
+    source: {ref: "K = (4C−1)/(4C−4) + 0.615/C" }
+    outputs: [K]
+
+  - id: D2
+    name_zh: 弹簧中径
+    kind: formula
+    expr: "C * d"
+    unit: mm
+    outputs: [D2]
+
+  - id: D_out
+    name_zh: 弹簧外径
+    kind: formula
+    expr: "D2 + d"
+    unit: mm
+    outputs: [D_out]
+
+  # ---------- 第 3 步：强度 ----------
+  - id: d_min
+    name_zh: 所需最小钢丝直径
+    kind: formula
+    expr: "(8 * K * F_max * C / (pi * tau_allow)) ** 0.5"
+    unit: mm
+    note: "由 τ = 8KFD2/(πd³) ≤ [τ] 并代入 D2 = Cd 反解"
+    source: {ref: "d ≥ (8 K F C / (π [τ]))^(1/2)" }
+    outputs: [d_min]
+
+  - id: chk_d
+    name_zh: 钢丝直径校核
+    kind: check
+    value: d
+    op: ">="
+    limit: d_min
+    unit: mm
+    on_fail: 钢丝太细，改用更粗的钢丝、减小旋绕比 C、或改用强度更高的材料
+    source: {ref: "d ≥ d_min" }
+
+  - id: tau_actual
+    name_zh: 最大工作切应力
+    kind: formula
+    expr: "8 * K * F_max * D2 / (pi * d ** 3)"
+    unit: MPa
+    source: {ref: "τ = 8 K F D2 / (π d³)" }
+    outputs: [tau_actual]
+
+  - id: chk_tau
+    name_zh: 切应力校核
+    kind: check
+    value: tau_actual
+    op: "<="
+    limit: tau_allow
+    unit: MPa
+    on_fail: 加粗钢丝、减小旋绕比 C、或改用强度更高的材料
+
+  # ---------- 第 4 步：刚度与圈数 ----------
+  - id: n
+    name_zh: 有效圈数
+    kind: formula
+    expr: "round(G * d ** 4 * stroke / (8 * D2 ** 3 * (F_max - F_min)) * 2) / 2"
+    note: "由行程与载荷差反解圈数，并圆整到 0.5 圈（工程上按半圈计）"
+    source: {ref: "n = G d⁴ f / (8 D2³ F)" }
+    outputs: [n]
+
+  - id: chk_n
+    name_zh: 有效圈数校核
+    kind: check
+    value: n
+    op: ">="
+    limit: "2"
+    on_fail: 有效圈数少于 2 圈，弹簧特性不稳定；应减小钢丝直径或增大旋绕比
+    source: {ref: "压缩弹簧有效圈数一般不少于 2 圈" }
+
+  - id: k_spring
+    name_zh: 弹簧刚度
+    kind: formula
+    expr: "G * d ** 4 / (8 * D2 ** 3 * n)"
+    unit: N/mm
+    note: "用圆整后的圈数反算，这才是弹簧的实际刚度"
+    outputs: [k_spring]
+
+  - id: f_max
+    name_zh: 最大工作变形
+    kind: formula
+    expr: "F_max / k_spring"
+    unit: mm
+    outputs: [f_max]
+
+  # ---------- 第 5 步：稳定性 ----------
+  - id: b_ratio
+    name_zh: 高径比
+    kind: formula
+    expr: "H0 / D2"
+    note: "压缩弹簧太高会像细长杆一样失稳侧弯"
+    outputs: [b_ratio]
+
+  - id: b_limit
+    name_zh: 高径比临界值
+    kind: table_lookup
+    table: spring_design
+    key: "stability_limits.{end_support}.b_limit"
+    outputs: [b_limit]
+
+  - id: chk_stability
+    name_zh: 稳定性校核
+    kind: check
+    value: b_ratio
+    op: "<="
+    limit: b_limit
+    on_fail: 加导杆或导套，或改用更强的端部约束；不要靠硬改弹簧参数来凑
+    source: {ref: "b = H0/D2 ≤ 临界值" }

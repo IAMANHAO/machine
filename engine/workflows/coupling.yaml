@@ -1,0 +1,199 @@
+## 联轴器 选型校核 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/coupling.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: coupling
+name_zh: 联轴器（计算转矩与选型校核）
+standard: GB/T 5014 · JB/T 7511 · 厂商样本
+workflow_doc: workflows/coupling.md
+
+notes:
+  - "**不自建联轴器型号库。** 引擎算出计算转矩 Tc，再拿你从**样本**选定的候选型号
+     （公称转矩、孔径范围、许用转速）来校核三项是否都满足。
+     型号表是每型号一行的厂商数据，自建反而会给出错的数。"
+  - "**工作机工况系数是必填输入，不是查表来的。** 各厂商样本与 JB/T 7511 的口径
+     不完全一致，用哪张表应当跟着你选的那个样本走。
+     只有动力机系数 Kw 有可核对的出处，录在表里。"
+  - "**起动系数 Ks 与温度系数 Kt 未实现**，检索不到可核对的数值。
+     频繁启动或高低温工况需自行按样本追加系数后，把结果乘进工作机工况系数里。"
+  - "联轴器型式的选择（弹性 / 齿式 / 膜片 / 十字滑块…）**引擎不做**——
+     它取决于对补偿能力、扭转刚度、维护性的取舍，是设计判断不是计算。
+     表里存了三种常见型式的传动效率，供传动装置总效率计算参考。"
+
+inputs:
+  - id: P
+    name_zh: 传递功率
+    unit: kW
+    required: true
+    domain: {min: 0.01, max: 50000}
+
+  - id: n
+    name_zh: 工作转速
+    unit: r/min
+    required: true
+    domain: {min: 1, max: 30000}
+
+  - id: prime_mover
+    name_zh: 动力机类别
+    type: enum
+    required: true
+    default: class_1
+    options_from: {table: condition_factors, path: prime_movers, label: name_zh}
+
+  - id: K_work
+    name_zh: 工作机工况系数
+    required: true
+    default: 1.5
+    domain: {min: 1.0, max: 5.0}
+    hint: 按所选联轴器样本里的工况系数表取。反映负载端的冲击、正反转、制动、频繁启动
+
+  - id: Tn_catalog
+    name_zh: 候选型号的公称转矩 Tn
+    unit: N·m
+    required: true
+    domain: {min: 0.1, max: 10000000}
+    hint: 从样本抄
+
+  - id: n_allow_catalog
+    name_zh: 候选型号的许用转速
+    unit: r/min
+    required: true
+    domain: {min: 1, max: 100000}
+    hint: 从样本抄
+
+  - id: d_shaft
+    name_zh: 轴径
+    unit: mm
+    required: true
+    domain: {min: 5, max: 1000}
+    hint: 主动端与从动端轴径不同时，两端分别校核
+
+  - id: bore_min_catalog
+    name_zh: 候选型号的最小孔径
+    unit: mm
+    required: true
+    domain: {min: 1, max: 1000}
+    hint: 从样本抄
+
+  - id: bore_max_catalog
+    name_zh: 候选型号的最大孔径
+    unit: mm
+    required: true
+    domain: {min: 1, max: 1000}
+    hint: 从样本抄
+
+result:
+  - {label: 动力机类别, value: "{prime_mover_label}"}
+  - {label: 动力机系数 Kw, value: "{Kw}"}
+  - {label: 工作机工况系数, value: "{K_work}"}
+  - {label: 理论转矩 T, value: "{T}", unit: N·m}
+  - {label: 计算转矩 Tc, value: "{Tc}", unit: N·m}
+  - {label: 候选公称转矩 Tn, value: "{Tn_catalog}", unit: N·m}
+  - {label: 转矩裕度, value: "{margin}"}
+  - {label: 采购关键字, value: "联轴器 公称转矩{Tn_catalog}N·m 孔径{d_shaft}"}
+
+probe:
+  base:
+    P: 7.5
+    n: 1450
+    prime_mover: class_1
+    K_work: 1.5
+    d_shaft: 42
+    bore_min_catalog: 30
+    bore_max_catalog: 55
+    n_allow_catalog: 4000
+  cases:
+    - {name: 电动机·转矩够, Tn_catalog: 250}
+    - {name: 电动机·转矩不够（应校核不通过）, Tn_catalog: 63}
+    - {name: 单缸内燃机（Kw 最大）, prime_mover: class_4, Tn_catalog: 250}
+    - {name: 转速超许用（应校核不通过）, n: 5000, Tn_catalog: 250}
+    - {name: 轴径超孔径范围（应校核不通过）, d_shaft: 80, Tn_catalog: 250}
+
+procure:
+  material_template: coupling
+  channels: [taobao, 1688]
+  fields:
+    kind: 联轴器
+    spec: "孔径{d_shaft}"
+
+steps:
+  # ---------- 第 1 步：计算转矩 ----------
+  - id: T
+    name_zh: 理论转矩
+    kind: formula
+    expr: "9550 * P / n"
+    unit: N·m
+    source: {ref: "T = 9550 P / n" }
+    outputs: [T]
+
+  - id: prime_mover_label
+    name_zh: 动力机类别
+    kind: table_lookup
+    table: condition_factors
+    key: "prime_movers.{prime_mover}.name_zh"
+    outputs: [prime_mover_label]
+
+  - id: Kw
+    name_zh: 动力机系数
+    kind: table_lookup
+    table: condition_factors
+    key: "prime_movers.{prime_mover}.Kw"
+    note: "反映驱动端的转矩波动：缸数越少波动越大，系数越高"
+    outputs: [Kw]
+
+  - id: Tc
+    name_zh: 计算转矩
+    kind: formula
+    expr: "Kw * K_work * T"
+    unit: N·m
+    note: "Kw 管驱动端的波动，K_work 管负载端的冲击，两者分工不同，要分别计入"
+    source: {ref: "Tc = Kw · K工作机 · T" }
+    outputs: [Tc]
+
+  # ---------- 第 2 步：三项校核 ----------
+  - id: chk_torque
+    name_zh: 公称转矩校核
+    kind: check
+    value: Tn_catalog
+    op: ">="
+    limit: Tc
+    unit: N·m
+    on_fail: 候选型号转矩不够，改选更大规格；或核对工况系数是否取得过于保守
+    source: {ref: "Tn ≥ Tc" }
+
+  - id: chk_speed
+    name_zh: 许用转速校核
+    kind: check
+    value: n
+    op: "<="
+    limit: n_allow_catalog
+    unit: r/min
+    on_fail: 转速超出该型号许用值，改选高速型（如膜片或弹性柱销）或平衡等级更高的规格
+
+  - id: chk_bore_lo
+    name_zh: 轴径下限校核
+    kind: check
+    value: d_shaft
+    op: ">="
+    limit: bore_min_catalog
+    unit: mm
+    on_fail: 轴径小于该型号最小孔径，改选更小规格
+
+  - id: chk_bore_hi
+    name_zh: 轴径上限校核
+    kind: check
+    value: d_shaft
+    op: "<="
+    limit: bore_max_catalog
+    unit: mm
+    on_fail: 轴径超出该型号最大孔径，改选更大规格
+
+  # ---------- 第 3 步：裕度 ----------
+  - id: margin
+    name_zh: 转矩裕度
+    kind: formula
+    expr: "Tn_catalog / Tc"
+    note: "裕度过大说明选大了，联轴器的转动惯量会拖累系统响应；过小则没有余地"
+    outputs: [margin]

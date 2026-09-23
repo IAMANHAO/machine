@@ -1,0 +1,275 @@
+## 减速器 / 传动装置参数计算 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/reducer.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: reducer
+name_zh: 减速器（传动装置参数与选型转矩）
+standard: 机械设计基础 表 3-1 · 厂商样本
+workflow_doc: workflows/reducer.md
+
+notes:
+  - "**这不是减速器型号选型，是选型前的参数计算。** 引擎算的是总效率、输出转速、
+     输出转矩与所需公称转矩；**具体型号必须由人从厂商样本选**——
+     样本是每型号一行的数据，成千上万条，不自建型号库是设计选择，不是缺陷。"
+  - "**行星齿轮减速器与摆线针轮减速器没有数据。** 教材表 3-1 不含这两类，
+     它们的效率与传动比要查厂商样本。选到会如实报缺口。"
+  - "效率区间一律取**下端**（偏保守），与教材「一般取中间值」的口径不同。
+     这是刻意的：选型时低估输出功率会选大一档，高估会选小一档，前者安全。"
+  - "**热功率校核未实现。** 蜗杆减速器与连续重载工况常常是热功率而非机械强度定型号，
+     但热功率是每型号一个数的样本数据，缓存里没有。选蜗杆时务必另行核对样本热功率。"
+  - "工况系数 KA 是必填输入，不是查表来的——不同厂商样本给的 KA 表口径不一致，
+     应当用你所选厂商样本里的那张表。"
+
+inputs:
+  - id: P
+    name_zh: 输入功率
+    unit: kW
+    required: true
+    domain: {min: 0.01, max: 5000}
+    hint: 电动机额定功率
+
+  - id: n_in
+    name_zh: 输入转速
+    unit: r/min
+    required: true
+    domain: {min: 1, max: 30000}
+
+  - id: i
+    name_zh: 总传动比
+    required: true
+    domain: {min: 1.01, max: 500}
+
+  - id: drive_type
+    name_zh: 传动型式
+    type: enum
+    required: true
+    default: cylindrical_single
+    options:
+      - {value: cylindrical_single, label: 单级闭式圆柱齿轮}
+      - {value: cylindrical_two, label: 两级闭式圆柱齿轮}
+      - {value: bevel_single, label: 单级闭式圆锥齿轮}
+      - {value: worm, label: 蜗杆传动}
+
+  - id: gear_precision
+    name_zh: 齿轮精度等级
+    type: enum
+    required_when: "drive_type != 'worm'"
+    default: grade_8
+    options:
+      - {value: grade_7, label: 7 级精度}
+      - {value: grade_8, label: 8 级精度}
+      - {value: grade_9, label: 9 级精度（圆锥齿轮无此档）}
+    hint: GB/T 10095 的齿轮精度等级，不是减速器整机精度
+
+  - id: worm_thread
+    name_zh: 蜗杆头数
+    type: enum
+    required_when: "drive_type == 'worm'"
+    default: double
+    options:
+      - {value: self_locking, label: 自锁（效率最低）}
+      - {value: single, label: 单头}
+      - {value: double, label: 双头}
+      - {value: quad, label: 三头和四头}
+
+  - id: bearing_pairs
+    name_zh: 轴承对数
+    required: true
+    default: 2
+    domain: {min: 0, max: 10}
+    hint: 效率按"一对"计，几对就连乘几次
+
+  - id: bearing_type
+    name_zh: 轴承型式
+    type: enum
+    required: true
+    default: rolling_ball
+    options_from: {table: transmission, path: bearing_pair, label: name_zh}
+
+  - id: coupling_count
+    name_zh: 联轴器个数
+    required: true
+    default: 1
+    domain: {min: 0, max: 6}
+
+  - id: coupling_type
+    name_zh: 联轴器型式
+    type: enum
+    required: true
+    default: elastic
+    options_from: {table: transmission, path: coupling_efficiency, label: name_zh}
+
+  - id: KA
+    name_zh: 工况系数 KA
+    required: true
+    default: 1.25
+    domain: {min: 1.0, max: 4.0}
+    hint: 按所选厂商样本里的工况系数表取，不同样本口径不一致
+
+result:
+  - {label: 传动副效率 η, value: "{eta_drive}"}
+  - {label: 轴承效率（单对）, value: "{eta_bearing}"}
+  - {label: 联轴器效率（单个）, value: "{eta_coupling}"}
+  - {label: 总效率 η总, value: "{eta_total}"}
+  - {label: 输出功率, value: "{P_out}", unit: kW}
+  - {label: 输出转速, value: "{n_out}", unit: r/min}
+  - {label: 输出转矩, value: "{T_out}", unit: N·m}
+  - {label: 工况系数 KA, value: "{KA}"}
+  - {label: 所需公称转矩 Tn, value: "{T_required}", unit: N·m}
+  - {label: 采购关键字, value: "减速机 速比{i} 输出转矩{T_required}N·m"}
+
+probe:
+  base:
+    P: 7.5
+    n_in: 1450
+    bearing_pairs: 2
+    bearing_type: rolling_ball
+    coupling_count: 1
+    coupling_type: elastic
+    KA: 1.25
+  cases:
+    - {name: 单级圆柱齿轮·8级, i: 4, drive_type: cylindrical_single, gear_precision: grade_8}
+    - {name: 单级圆柱齿轮·7级, i: 4, drive_type: cylindrical_single, gear_precision: grade_7}
+    - {name: 两级圆柱齿轮, i: 20, drive_type: cylindrical_two, gear_precision: grade_8}
+    - {name: 单级圆锥齿轮, i: 2.5, drive_type: bevel_single, gear_precision: grade_8}
+    - {name: 蜗杆·双头, i: 25, drive_type: worm, worm_thread: double}
+    - {name: 蜗杆·自锁, i: 30, drive_type: worm, worm_thread: self_locking}
+    - {name: 传动比超出常用范围（应校核不通过）, i: 12, drive_type: cylindrical_single, gear_precision: grade_8}
+    - {name: 圆锥齿轮·9级（表内无此档）, i: 2.5, drive_type: bevel_single, gear_precision: grade_9}
+
+procure:
+  material_template: reducer
+  channels: [taobao, 1688]
+  fields:
+    kind: 减速机
+    spec: "速比{i}"
+
+steps:
+  # ---------- 第 1 步：传动副效率 ----------
+  - id: eta_cyl
+    name_zh: 圆柱齿轮传动效率
+    kind: table_lookup
+    when: "drive_type == 'cylindrical_single' or drive_type == 'cylindrical_two'"
+    table: transmission
+    key: "gear_drive.cylindrical_closed.by_precision.{gear_precision}.eta"
+    outputs: [eta_stage]
+
+  - id: eta_bevel
+    name_zh: 圆锥齿轮传动效率
+    kind: table_lookup
+    when: "drive_type == 'bevel_single'"
+    table: transmission
+    key: "gear_drive.bevel_closed.by_precision.{gear_precision}.eta"
+    note: "圆锥齿轮表里只有 7 级与 8 级，选 9 级会如实报缺口"
+    outputs: [eta_stage]
+
+  - id: eta_worm
+    name_zh: 蜗杆传动效率
+    kind: table_lookup
+    when: "drive_type == 'worm'"
+    table: transmission
+    key: "worm_drive.by_thread.{worm_thread}.eta_min"
+    note: "取区间下端。蜗杆效率还与材料、润滑有关，参数定下来后应重新精确计算"
+    outputs: [eta_stage]
+
+  # 两级圆柱齿轮是两对齿轮串联，效率要平方
+  - id: eta_drive_two
+    name_zh: 传动副总效率
+    kind: formula
+    when: "drive_type == 'cylindrical_two'"
+    expr: "eta_stage ** 2"
+    note: "两级是两对齿轮串联，效率连乘两次"
+    outputs: [eta_drive]
+
+  - id: eta_drive_one
+    name_zh: 传动副总效率
+    kind: formula
+    when: "drive_type != 'cylindrical_two'"
+    expr: "eta_stage"
+    outputs: [eta_drive]
+
+  # ---------- 第 2 步：轴承与联轴器效率 ----------
+  - id: eta_bearing
+    name_zh: 轴承效率（单对）
+    kind: table_lookup
+    table: transmission
+    key: "bearing_pair.{bearing_type}.eta"
+    note: "滑动轴承给的是区间，表里只有 eta_min/eta_max，选到会如实报缺口"
+    outputs: [eta_bearing]
+
+  - id: eta_coupling
+    name_zh: 联轴器效率（单个）
+    kind: table_lookup
+    table: transmission
+    key: "coupling_efficiency.{coupling_type}.eta"
+    outputs: [eta_coupling]
+
+  - id: eta_total
+    name_zh: 总效率
+    kind: formula
+    expr: "eta_drive * eta_bearing ** bearing_pairs * eta_coupling ** coupling_count"
+    note: "各级效率连乘。同类型的几对轴承、几个联轴器要分别计入"
+    source: {ref: "η总 = η1·η2·η3…ηn" }
+    outputs: [eta_total]
+
+  # ---------- 第 3 步：输出参数 ----------
+  - id: P_out
+    name_zh: 输出功率
+    kind: formula
+    expr: "P * eta_total"
+    unit: kW
+    outputs: [P_out]
+
+  - id: n_out
+    name_zh: 输出转速
+    kind: formula
+    expr: "n_in / i"
+    unit: r/min
+    outputs: [n_out]
+
+  - id: T_out
+    name_zh: 输出转矩
+    kind: formula
+    expr: "9550 * P_out / n_out"
+    unit: N·m
+    source: {ref: "T = 9550 P / n" }
+    outputs: [T_out]
+
+  # ---------- 第 4 步：传动比合理性 ----------
+  - id: i_min
+    name_zh: 常用传动比下限
+    kind: table_lookup
+    when: "drive_type == 'cylindrical_single'"
+    table: transmission
+    key: "gear_drive.cylindrical_closed.ratio_single_stage.i_min"
+    outputs: [i_lo]
+
+  - id: i_max
+    name_zh: 常用传动比上限
+    kind: table_lookup
+    when: "drive_type == 'cylindrical_single'"
+    table: transmission
+    key: "gear_drive.cylindrical_closed.ratio_single_stage.i_max"
+    outputs: [i_hi]
+
+  - id: chk_ratio
+    name_zh: 传动比合理性校核
+    kind: check
+    when: "drive_type == 'cylindrical_single'"
+    value: i
+    op: "<="
+    limit: i_hi
+    on_fail: 单级圆柱齿轮的常用传动比上限有限，超过应改用两级或其它传动型式
+    source: {ref: "机械设计基础 表 3-1 常用传动比" }
+
+  # ---------- 第 5 步：选型转矩 ----------
+  - id: T_required
+    name_zh: 所需公称转矩
+    kind: formula
+    expr: "KA * T_out"
+    unit: N·m
+    note: "按此转矩从厂商样本里选型号：样本公称转矩 Tn ≥ 本值"
+    source: {ref: "Tn ≥ KA · T_out" }
+    outputs: [T_required]

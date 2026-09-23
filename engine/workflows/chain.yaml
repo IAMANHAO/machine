@@ -1,0 +1,179 @@
+## 滚子链传动 几何与运动学计算 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/chain.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: chain
+name_zh: 滚子链传动（几何与运动学）
+standard: GB/T 1243
+workflow_doc: workflows/chain.md
+
+notes:
+  - "**这个工作流不能替你选链号。** 选链号要查额定功率曲线（链号 × 小链轮转速），
+     那是曲线图数据，缓存里没有——与同步带 rated_power.yaml 是同一类问题。
+     所以链号是**输入**，引擎负责的是链号定下来之后的几何与运动学计算。"
+  - "**缓存里只录了节距一列。** 检索到的滚子链参数表在转载时列与表头错位
+     （把销轴直径当成了内链节内宽、把链板高度当成了极限拉伸载荷），数值不可信。
+     节距之所以敢录，是因为它能由链号独立复算：前两位 ÷ 16 英寸 × 25.4。"
+  - "**最小链轮齿数、最大许用链速、中心距推荐范围的校核都没有实现**，
+     因为那三张表都没有可核对的数值。只保留了一项结构性校核：链节数必须为偶数。"
+  - "只覆盖**单排滚子链**。多排链的排数系数、套筒链、齿形链均不适用。"
+
+inputs:
+  - id: chain_no
+    name_zh: 链号
+    type: enum
+    required: true
+    default: c08B
+    options_from: {table: chain_pitch, path: chains, label: code}
+    hint: 由额定功率曲线选定后填入——引擎没有那张曲线，选不了链号
+
+  - id: z1
+    name_zh: 小链轮齿数
+    required: true
+    default: 21
+    domain: {min: 9, max: 150}
+    hint: 通常取奇数，与偶数链节数配合可使磨损均匀
+
+  - id: z2
+    name_zh: 大链轮齿数
+    required: true
+    domain: {min: 9, max: 150}
+
+  - id: n1
+    name_zh: 小链轮转速
+    unit: r/min
+    required: true
+    domain: {min: 0.1, max: 5000}
+
+  - id: a0
+    name_zh: 初定中心距
+    unit: mm
+    required: true
+    domain: {min: 10, max: 20000}
+    hint: 工程上常取 (30~50) 倍节距
+
+result:
+  - {label: 链号, value: "{chain_code}"}
+  - {label: 节距 p, value: "{p}", unit: mm}
+  - {label: 传动比 i, value: "{i}"}
+  - {label: 链速 v, value: "{v}", unit: m/s}
+  - {label: 小链轮分度圆 d1, value: "{d1}", unit: mm}
+  - {label: 大链轮分度圆 d2, value: "{d2}", unit: mm}
+  - {label: 初算链节数, value: "{Lp0}"}
+  - {label: 取整链节数, value: "{Lp}"}
+  - {label: 实际中心距 a, value: "{a}", unit: mm}
+  - {label: 中心距/节距比, value: "{a_over_p}"}
+  - {label: 采购关键字, value: "滚子链 {chain_code} {Lp}节"}
+
+probe:
+  base:
+    n1: 300
+    a0: 600
+  cases:
+    - {name: 08B·常规, chain_no: c08B, z1: 21, z2: 63}
+    - {name: 10B·常规, chain_no: c10B, z1: 19, z2: 57}
+    - {name: 12B·大传动比, chain_no: c12B, z1: 17, z2: 85}
+    - {name: 16B·低速重载, chain_no: c16B, z1: 23, z2: 46, n1: 60}
+    - {name: 05B·公制例外档, chain_no: c05B, z1: 21, z2: 42}
+    - {name: 24A·大节距, chain_no: c24A, z1: 19, z2: 38, a0: 1500}
+
+procure:
+  material_template: chain
+  channels: [taobao, 1688]
+  fields:
+    kind: 滚子链
+    model: "{chain_code}"
+    spec: "{Lp}节"
+
+steps:
+  # ---------- 第 1 步：链号与节距 ----------
+  - id: chain_code
+    name_zh: 链号
+    kind: table_lookup
+    table: chain_pitch
+    key: "chains.{chain_no}.code"
+    note: "缓存键写作 c08B（键不宜以数字开头），真正的链号存在 code 字段"
+    outputs: [chain_code]
+
+  - id: p
+    name_zh: 节距
+    kind: table_lookup
+    table: chain_pitch
+    key: "chains.{chain_no}.pitch"
+    unit: mm
+    note: "可由链号独立复算：前两位 ÷ 16 英寸 × 25.4（05B 为公制例外）"
+    outputs: [p]
+
+  # ---------- 第 2 步：运动学 ----------
+  - id: i
+    name_zh: 传动比
+    kind: formula
+    expr: "z2 / z1"
+    outputs: [i]
+
+  - id: v
+    name_zh: 链速
+    kind: formula
+    expr: "z1 * p * n1 / 60000"
+    unit: m/s
+    note: "链速等于每秒通过的链节长度，与链轮分度圆无关"
+    source: {ref: "v = z1 · p · n1 / 60000" }
+    outputs: [v]
+
+  # ---------- 第 3 步：链轮分度圆 ----------
+  - id: d1
+    name_zh: 小链轮分度圆直径
+    kind: formula
+    expr: "p / sin(pi / z1)"
+    unit: mm
+    source: {ref: "d = p / sin(180°/z)" }
+    outputs: [d1]
+
+  - id: d2
+    name_zh: 大链轮分度圆直径
+    kind: formula
+    expr: "p / sin(pi / z2)"
+    unit: mm
+    outputs: [d2]
+
+  # ---------- 第 4 步：链长与中心距 ----------
+  - id: Lp0
+    name_zh: 初算链节数
+    kind: formula
+    expr: "2 * a0 / p + (z1 + z2) / 2 + p / a0 * ((z2 - z1) / (2 * pi)) ** 2"
+    note: "链节数是无量纲的节数，不是长度"
+    source: {ref: "Lp = 2a/p + (z1+z2)/2 + (p/a)·((z2−z1)/2π)²" }
+    outputs: [Lp0]
+
+  - id: Lp
+    name_zh: 取整链节数
+    kind: formula
+    expr: "round(Lp0 / 2) * 2"
+    note: "圆整到**偶数**：奇数链节需要过渡链节，强度会降低约 20%"
+    outputs: [Lp]
+
+  - id: chk_even
+    name_zh: 链节数偶数校核
+    kind: check
+    value: "Lp - round(Lp / 2) * 2"
+    op: "=="
+    limit: "0"
+    on_fail: 链节数必须为偶数，否则需用过渡链节，强度下降
+    source: {ref: "避免过渡链节" }
+
+  - id: a
+    name_zh: 实际中心距
+    kind: formula
+    expr: "p / 4 * (Lp - (z1 + z2) / 2 + ((Lp - (z1 + z2) / 2) ** 2 - 8 * ((z2 - z1) / (2 * pi)) ** 2) ** 0.5)"
+    unit: mm
+    source: {ref: "a = p/4 · [ (Lp − (z1+z2)/2) + √((Lp − (z1+z2)/2)² − 8((z2−z1)/2π)²) ]" }
+    outputs: [a]
+
+  - id: a_over_p
+    name_zh: 中心距与节距之比
+    kind: formula
+    expr: "a / p"
+    note: "工程上常取 30~50。过小则小链轮包角不足，过大则链条松边抖动"
+    outputs: [a_over_p]

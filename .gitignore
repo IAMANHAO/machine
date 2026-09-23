@@ -1,0 +1,42 @@
+# ── Python ──
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# ── 前端 ──
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# ── Tauri / Rust ──
+desktop/src-tauri/target/
+# 打包时从 dist/mds-server 复制进来的 sidecar 副本，46 MB，不入库
+desktop/src-tauri/mds-server/
+desktop/src-tauri/gen/schemas/
+
+# ── 用户数据 ──
+# 项目库、账号绑定元数据、AI 用量。**绝不能进仓库。**
+# API key 本身在系统凭据库里，不落文件；这里挡的是绑定元数据与项目记录。
+.mds-data/
+account.json
+
+# ── 知识库写入的备份 ──
+# mds.editor 每次写表前留的 .bak，属于本地痕迹
+*.yaml.bak
+
+# ── 编辑器与系统 ──
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── 本地产物 ──
+*.log
+pkg.pdf
+pkg.xlsx

@@ -1,0 +1,96 @@
+---
+data_source: GB/T 1243《传动用短节距精密滚子链、套筒链、附件和链轮》—— 链号与节距的对应关系
+second_source: 节距可由链号**独立复算**：链号前两位 ÷ 16 英寸 × 25.4 = 节距（mm）。08B → 8/16 in = 12.7 mm，与标准一致
+verification_status: single_source
+last_verified: 2026-09-22
+_todo: "1) **只录了节距。** 检索到的滚子链参数表在转载时列与表头错位
+     （把销轴直径当成了内链节内宽、把链板高度当成了极限拉伸载荷），
+     数值不可信，因此滚子直径 d1、排距 pt、内宽 b1、极限拉伸载荷**一律未录**。
+     节距之所以敢录，是因为它能由链号独立复算。
+  2) **额定功率曲线没有录入**——那是按链号 × 小链轮转速的曲线图，
+     与同步带 rated_power.yaml 是同一类问题。因此本工作流**不能选链号**，
+     链号必须由用户指定。
+  3) 最小链轮齿数、最大许用链速、中心距推荐范围均未录入，相应校核未实现。"
+unit_notes:
+  pitch: mm
+---
+
+# 滚子链 链号与节距
+#
+# ── 为什么这张表只有节距一列 ──
+#
+# 节距是**可以独立复算**的：链号的前两位是节距的 1/16 英寸数。
+#
+#     p = 前两位 ÷ 16 × 25.4   (mm)
+#
+#   08B → 8/16 in  = 0.500 in = 12.700 mm
+#   10B → 10/16 in = 0.625 in = 15.875 mm
+#   12B → 12/16 in = 0.750 in = 19.050 mm
+#   16B → 16/16 in = 1.000 in = 25.400 mm
+#   20B → 20/16 in = 1.250 in = 31.750 mm
+#
+# 其余参数（滚子直径、排距、内宽、极限拉伸载荷）检索到的转载**列与表头错位**，
+# 数值不可信，宁可不录。tests/test_chain_seal_gear.py 会拿上面的式子逐行校验节距。
+#
+# A 系列源于美国，B 系列源于英国，两者节距相同但其余尺寸不同，不可混用。
+
+chains:
+  c05B:
+    code: 05B
+    pitch: 8.0
+    series: B
+    note: "**公制例外**：按公式应为 7.9375，标准取 8.0。唯一不满足复算式的一档"
+  c06B:
+    code: 06B
+    pitch: 9.525
+    series: B
+  c08A:
+    code: 08A
+    pitch: 12.7
+    series: A
+  c08B:
+    code: 08B
+    pitch: 12.7
+    series: B
+  c10A:
+    code: 10A
+    pitch: 15.875
+    series: A
+  c10B:
+    code: 10B
+    pitch: 15.875
+    series: B
+  c12A:
+    code: 12A
+    pitch: 19.05
+    series: A
+  c12B:
+    code: 12B
+    pitch: 19.05
+    series: B
+  c16A:
+    code: 16A
+    pitch: 25.4
+    series: A
+  c16B:
+    code: 16B
+    pitch: 25.4
+    series: B
+  c20A:
+    code: 20A
+    pitch: 31.75
+    series: A
+  c20B:
+    code: 20B
+    pitch: 31.75
+    series: B
+  c24A:
+    code: 24A
+    pitch: 38.1
+    series: A
+  c24B:
+    code: 24B
+    pitch: 38.1
+    series: B
+
+# 键里不能带点或以数字开头会带来引用麻烦，所以写成 c08B，真正的链号在 code 字段。

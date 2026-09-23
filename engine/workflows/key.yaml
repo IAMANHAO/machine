@@ -1,0 +1,216 @@
+## 普通平键（静连接）选型 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/key.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: key
+name_zh: 普通平键（静连接）
+standard: GB/T 1095-2003 · GB/T 1096-2003
+workflow_doc: workflows/key.md
+
+notes:
+  - "只覆盖**普通平键的静连接**。导向平键、滑键（动连接）用的是许用压强 [p]，
+     与静连接的许用挤压应力 [σp] 是两套口径，而且还要校核磨损，混用会给出错的结论。
+     半圆键、楔键、切向键、花键均未覆盖。"
+  - "**只校核挤压强度，不校核剪切。** 普通平键的主要失效形式是较弱工作面被压溃，
+     工程上通常只校核挤压——但这是惯例不是免检。缓存里没有许用切应力 [τ] 的表，
+     引擎不编一个出来。重载冲击场合应另行校核剪切。"
+  - "许用应力必须取键、轴、轮毂三者中**最弱**的那个材料。典型场合是钢轴 + 铸铁齿轮：
+     按铸铁查是 50~60 MPa，按钢查是 100~120，差一倍。选错这一项校核会轻松通过，
+     而实际轮毂会被压溃。这一项由用户指定，引擎不猜。"
+  - "每格许用应力给的是区间，本工作流一律取**下端**（偏安全）。
+     需要用上端的场合应由设计者自行判断并记录依据。"
+  - "键长取**不大于轮毂长度**的最大标准值。若轮毂过短导致键长不足以承载，
+     会如实报校核不通过，并提示加长轮毂 / 用双键 / 改花键。"
+
+inputs:
+  - id: d
+    name_zh: 轴的公称直径
+    unit: mm
+    required: true
+    domain: {min: 6, max: 500}
+    hint: 决定键的截面尺寸 b×h
+
+  - id: T
+    name_zh: 传递转矩
+    unit: N·m
+    required: true
+    domain: {min: 0.1, max: 1000000}
+    hint: 由功率与转速换算：T = 9550 × P(kW) / n(r/min)
+
+  - id: L_hub
+    name_zh: 轮毂长度
+    unit: mm
+    required: true
+    domain: {min: 8, max: 600}
+    hint: 键长取不大于此值的最大标准值
+
+  - id: key_type
+    name_zh: 键型
+    type: enum
+    required: true
+    default: A
+    options:
+      - {value: A, label: A 型（圆头，工作长度 l = L − b）}
+      - {value: B, label: B 型（方头，工作长度 l = L）}
+      - {value: C, label: C 型（单圆头，工作长度 l = L − b/2）}
+
+  - id: weak_material
+    name_zh: 最弱件材料
+    type: enum
+    required: true
+    default: steel
+    options:
+      - {value: steel, label: 钢（键 / 轴 / 轮毂都是钢）}
+      - {value: cast_iron, label: 铸铁（轮毂为铸铁）}
+    hint: 取键、轴、轮毂三者中最弱的那一个——钢轴配铸铁齿轮必须选铸铁
+
+  - id: load_type
+    name_zh: 载荷性质
+    type: enum
+    required: true
+    default: light_impact
+    options:
+      - {value: static, label: 静载荷}
+      - {value: light_impact, label: 轻微冲击}
+      - {value: impact, label: 冲击载荷}
+
+result:
+  - {label: 键规格, value: "{spec_label}"}
+  - {label: 键宽 b, value: "{b}", unit: mm}
+  - {label: 键高 h, value: "{h}", unit: mm}
+  - {label: 键长 L, value: "{L}", unit: mm}
+  - {label: 工作长度 l, value: "{l_work}", unit: mm}
+  - {label: 轴槽深 t1, value: "{t1}", unit: mm}
+  - {label: 毂槽深 t2, value: "{t2}", unit: mm}
+  - {label: 挤压应力 σp, value: "{sigma_p}", unit: MPa}
+  - {label: "许用挤压应力 [σp]", value: "{sigma_p_allow}", unit: MPa}
+  - {label: 采购关键字, value: "普通平键 {spec_label} GB/T 1096"}
+
+probe:
+  base:
+    key_type: A
+    load_type: light_impact
+  cases:
+    - {name: 钢毂·中等轴径, d: 45, T: 300, L_hub: 70, weak_material: steel}
+    - {name: 铸铁毂·中等轴径, d: 45, T: 300, L_hub: 70, weak_material: cast_iron}
+    - {name: 钢毂·小轴径, d: 20, T: 40, L_hub: 36, weak_material: steel}
+    - {name: 钢毂·大轴径, d: 120, T: 4000, L_hub: 180, weak_material: steel}
+    - {name: 铸铁毂·轮毂过短（应校核不通过）, d: 45, T: 1200, L_hub: 30, weak_material: cast_iron}
+    - {name: 表覆盖上界, d: 500, T: 60000, L_hub: 400, weak_material: steel}
+
+procure:
+  material_template: generic
+  channels: [taobao, tmall, jd]
+  fields:
+    kind: 普通平键
+    spec: "{spec_label}"
+    grade: 45钢
+
+steps:
+  # ---------- 第 1 步：按轴径查键的截面尺寸 ----------
+  - id: section
+    name_zh: 查键槽剖面尺寸
+    kind: row_select
+    table: keyway_dimensions
+    rows_key: by_shaft_diameter
+    order_by: d_to
+    where:
+      - {field: d_from, op: "<", value: d}
+      - {field: d_to, op: ">=", value: d}
+    what: 键的截面尺寸
+    note: "标准的区间是左开右闭（>30~38），所以 d=30 取上一行"
+    fields:
+      b: b
+      h: h
+      t1: t1
+      t2: t2
+    outputs: [b, h, t1, t2]
+
+  # ---------- 第 2 步：定键长 ----------
+  - id: L
+    name_zh: 标准键长
+    kind: round_to_series
+    table: keyway_dimensions
+    path: "length_series.series"
+    value: L_hub
+    mode: nearest_below
+    on_exceed: error
+    what: 键长
+    unit: mm
+    note: "取不大于轮毂长度的最大标准值"
+    outputs: [L]
+
+  - id: l_work_A
+    name_zh: 工作长度
+    kind: formula
+    when: "key_type == 'A'"
+    expr: "L - b"
+    unit: mm
+    note: "A 型两端圆头，两端各去掉 b/2"
+    outputs: [l_work]
+
+  - id: l_work_B
+    name_zh: 工作长度
+    kind: formula
+    when: "key_type == 'B'"
+    expr: "L"
+    unit: mm
+    note: "B 型方头，全长参与工作"
+    outputs: [l_work]
+
+  - id: l_work_C
+    name_zh: 工作长度
+    kind: formula
+    when: "key_type == 'C'"
+    expr: "L - b / 2"
+    unit: mm
+    note: "C 型单圆头，一端去掉 b/2"
+    outputs: [l_work]
+
+  - id: chk_l_positive
+    name_zh: 工作长度有效性校核
+    kind: check
+    value: l_work
+    op: ">"
+    limit: "0"
+    unit: mm
+    on_fail: 键长小于键宽，工作长度为零或负——轮毂太短，需加长轮毂或改用花键
+
+  # ---------- 第 3 步：挤压强度校核 ----------
+  - id: sigma_p
+    name_zh: 挤压应力
+    kind: formula
+    expr: "4 * T * 1000 / (d * h * l_work)"
+    unit: MPa
+    note: "σp = 2T/(d·k·l)，k = h/2 为键与轮毂的接触高度，故写作 4T/(d·h·l)。T 由 N·m 换成 N·mm"
+    source: {ref: "平键静连接挤压强度 σp = 2T/(d·k·l)"}
+    outputs: [sigma_p]
+
+  - id: sigma_p_allow
+    name_zh: 许用挤压应力
+    kind: table_lookup
+    table: allowable_stress
+    key: "static_connection.{weak_material}.{load_type}.min"
+    unit: MPa
+    note: "取区间下端，偏安全。必须按键、轴、轮毂三者中最弱的材料查"
+    outputs: [sigma_p_allow]
+
+  - id: chk_sigma_p
+    name_zh: 挤压强度校核
+    kind: check
+    value: sigma_p
+    op: "<="
+    limit: sigma_p_allow
+    unit: MPa
+    on_fail: 加长轮毂以加长键、改用双键（相隔 180°，按 1.5 倍承载计）、或改用花键
+    source: {ref: "σp ≤ [σp]" }
+
+  # ---------- 第 4 步：规格标注 ----------
+  - id: spec_label
+    name_zh: 规格标注
+    kind: text
+    template: "{key_type} 型 {b}×{h}×{L}"
+    note: "GB/T 1096 的标记方式，如「A 型 14×9×63」"
+    outputs: [spec_label]

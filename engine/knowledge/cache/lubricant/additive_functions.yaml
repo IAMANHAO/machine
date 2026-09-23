@@ -1,0 +1,75 @@
+---
+data_source: 成大先《机械设计手册》第 4 卷 润滑篇；Shell Lubricants Additive Handbook
+last_verified: 2026-09-20
+verification_status: single_source
+_todo: "添加剂化学名与剂量范围需要厂商 MSDS 核验；功能描述为主"
+---
+
+# 润滑油添加剂功能一览
+# 用于在选型时说明"为什么加这个东西"
+
+additives:
+  AW_抗磨剂:
+    typical_chemicals: [ZDDP, 二硫代磷酸锌, 磷酸酯]
+    function: "防止金属表面直接接触，避免擦伤与磨损"
+    typical_content_percent: [0.5, 1.5]
+    applications: [齿轮油, 液压油, 导轨油]
+    caution: "ZDDP 含磷，催化尾气敏感场合（小型发动机油）有磷中毒限制；工业油可用"
+
+  EP_极压剂:
+    typical_chemicals: [硫化物, 磷化物, 活性硫, 氯化石蜡]
+    function: "高温高载荷下化学反应膜保护齿面"
+    typical_content_percent: [1.0, 5.0]
+    applications: [齿轮油_CLP, 开式齿轮脂]
+    caution: "铜合金敏感（黄铜、青铜蜗轮）；选不含活性硫的 EP 剂"
+
+  R_O_防锈抗氧化:
+    typical_chemicals: [酚类抗氧剂, 胺类抗氧剂, 金属减活剂]
+    function: "防止油品氧化酸败；防金属锈蚀"
+    applications: [液压油, 涡轮油, 循环油]
+
+  抗泡剂:
+    typical_chemicals: [硅油, 丙烯酸酯]
+    function: "消除油箱气泡，避免气穴"
+    typical_content_percent: [0.0005, 0.001]
+    notes: "含量极少但关键；多了反致泡沫"
+
+  抗乳化剂:
+    typical_chemicals: [环氧乙烷缩合物]
+    function: "使混入的水迅速分离，避免乳化"
+    applications: [齿轮油, 涡轮油]
+
+  黏附剂:
+    typical_chemicals: [聚异丁烯, 高分子聚合物]
+    function: "提高油在金属表面的附着性，防止甩出"
+    applications: [链条油, 开式齿轮脂]
+
+  固体润滑剂:
+    typical_chemicals: [MoS2, 石墨, PTFE, 氮化硼]
+    function: "提供紧急润滑、边界润滑"
+    typical_content_percent: [1, 5]
+    applications: [高温链条脂, 重载开式齿轮脂]
+
+  抗爬行剂:
+    typical_chemicals: [脂肪酸酯, 甘油酯]
+    function: "消除金属-金属滑动导轨的低速爬行"
+    typical_content_percent: [0.5, 2]
+    applications: [导轨油_必须]
+
+  VI_改进剂_增黏剂:
+    typical_chemicals: [聚甲基丙烯酸酯, 烯烃共聚物]
+    function: "提高黏度指数（VI），让高低温黏度差减小"
+    typical_content_percent: [3, 15]
+    applications: [多级齿轮油, 高 VI 液压油]
+
+# 添加剂组合禁忌
+incompatible_combinations:
+  - a: EP 剂含活性硫
+    b: 铜合金部件
+    risk: "腐蚀青铜蜗轮/轴承"
+  - a: 高 ZDDP
+    b: 银触
+    risk: "与银反应失效"
+  - a: 不同厂家的 R&O 添加剂
+    b: 混用
+    risk: "可能产生沉淀；务必先做相容性试验"

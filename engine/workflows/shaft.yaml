@@ -1,0 +1,181 @@
+## 轴径初估（按扭转强度）—— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/shaft.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: shaft
+name_zh: 轴（按扭转强度初估轴径）
+standard: 机械设计手册 · 轴的强度计算
+workflow_doc: workflows/shaft.md
+
+notes:
+  - "**这是初估，不是完整的轴设计。** 只按纯扭转估算最小轴径，用于结构设计开始前
+     定一个起点。完整的轴设计还需要弯扭合成强度校核与疲劳安全系数校核，
+     后者要 σ-1、Kσ、εσ、β 等一整套系数表，缓存里一张都没有，因此未实现。
+     **不要拿这里的结果直接定稿。**"
+  - "许用扭转切应力 [τT] 是**已经考虑弯曲影响而降低**过的值，所以区间很宽
+     （45 钢 30~40 MPa）。取哪一端是设计判断：弯矩小取上端（轴细），
+     弯矩大或有冲击取下端（轴粗）。由用户选，引擎不替你定。"
+  - "缓存表里**没有存 A0 系数**。A0 不是独立数据，它是 [τT] 的换算结果
+     （A0 = (9.55e6/(0.2[τT]))^(1/3)）。手册列它是为了让人少按几次计算器，
+     软件没有这个需要——多存一个可推导的系数只会多一处可能抄错的地方。"
+  - "输出的是**向上取整到整毫米**的轴径。最终轴径还要由轴承内径、轴肩结构、
+     密封件尺寸共同决定，并按 GB/T 2822《标准尺寸》取标准值。
+     标准尺寸系列没有录入（检索到的都是付费/图片形式），所以引擎不做这一步圆整。"
+  - "适用前提是**实心圆轴**。空心轴的抗扭截面系数不同，本工作流不适用。"
+
+inputs:
+  - id: P
+    name_zh: 传递功率
+    unit: kW
+    required: true
+    domain: {min: 0.01, max: 10000}
+
+  - id: n
+    name_zh: 轴的转速
+    unit: r/min
+    required: true
+    domain: {min: 0.1, max: 30000}
+
+  - id: material
+    name_zh: 轴的材料
+    type: enum
+    required: true
+    default: steel_45
+    options_from: {table: material_stress, path: materials, label: name_zh}
+
+  - id: bending_influence
+    name_zh: 弯矩影响程度
+    type: enum
+    required: true
+    default: large
+    options:
+      - {value: large, label: 弯矩较大 / 载荷有冲击 / 双向回转（取保守端，轴粗）}
+      - {value: small, label: 弯矩很小或只受转矩 / 载荷平稳 / 单向回转（取宽松端，轴细）}
+    hint: 决定 [τT] 取区间的哪一端。拿不准就选前者
+
+  - id: keyway
+    name_zh: 键槽数量
+    type: enum
+    required: true
+    default: one
+    options_from: {table: material_stress, path: keyway_allowance, label: name_zh}
+    hint: 键槽削弱抗扭截面，要把估出的轴径放大
+
+result:
+  - {label: 轴的材料, value: "{material_label}"}
+  - {label: 传递转矩 T, value: "{T}", unit: N·m}
+  - {label: "许用扭转切应力 [τT]", value: "{tau_allow}", unit: MPa}
+  - {label: 按扭转估算的最小轴径, value: "{d_torsion}", unit: mm}
+  - {label: 键槽放大系数, value: "{kw_factor}"}
+  - {label: 放大后轴径, value: "{d_raw}", unit: mm}
+  - {label: 取整后轴径, value: "{d_shaft}", unit: mm}
+  - {label: 实际扭转切应力, value: "{tau_actual}", unit: MPa}
+  - {label: 采购关键字, value: "圆钢 {material_label} 直径{d_shaft}"}
+
+probe:
+  base:
+    bending_influence: large
+    keyway: one
+  sweep:
+    material: [q235_20, steel_35, steel_45, alloy_40cr, stainless_1cr18ni9ti]
+    P: [1.5, 7.5, 55]
+    n: [1450]
+
+procure:
+  material_template: generic
+  channels: [taobao, 1688]
+  fields:
+    kind: 圆钢
+    grade: "{material_label}"
+    spec: "直径{d_shaft}"
+
+steps:
+  # ---------- 第 1 步：转矩与许用应力 ----------
+  - id: T
+    name_zh: 传递转矩
+    kind: formula
+    expr: "9550 * P / n"
+    unit: N·m
+    source: {ref: "T = 9550 P / n（P 单位 kW，n 单位 r/min）"}
+    outputs: [T]
+
+  - id: material_label
+    name_zh: 材料名称
+    kind: table_lookup
+    table: material_stress
+    key: "materials.{material}.name_zh"
+    outputs: [material_label]
+
+  - id: tau_low
+    name_zh: 许用扭转切应力（保守端）
+    kind: table_lookup
+    when: "bending_influence == 'large'"
+    table: material_stress
+    key: "materials.{material}.tau_low"
+    unit: MPa
+    note: "弯矩较大时取区间下端，估出的轴更粗"
+    outputs: [tau_allow]
+
+  - id: tau_high
+    name_zh: 许用扭转切应力（宽松端）
+    kind: table_lookup
+    when: "bending_influence == 'small'"
+    table: material_stress
+    key: "materials.{material}.tau_high"
+    unit: MPa
+    note: "弯矩很小或只受转矩时可取区间上端"
+    outputs: [tau_allow]
+
+  # ---------- 第 2 步：按扭转强度估算轴径 ----------
+  - id: d_torsion
+    name_zh: 按扭转估算的最小轴径
+    kind: formula
+    expr: "(9550000 * P / (0.2 * tau_allow * n)) ** (1 / 3)"
+    unit: mm
+    note: "由 τT = T/WT = 9.55e6·P/n / (0.2d³) ≤ [τT] 反解。这就是手册 A0 系数的来处"
+    source: {ref: "d ≥ (9.55×10⁶ P / (0.2 [τT] n))^(1/3)"}
+    outputs: [d_torsion]
+
+  - id: kw_factor
+    name_zh: 键槽放大系数
+    kind: table_lookup
+    table: material_stress
+    key: "keyway_allowance.{keyway}.factor"
+    note: "键槽削弱抗扭截面，单键槽放大 5%，双键槽放大 10%"
+    outputs: [kw_factor]
+
+  - id: d_raw
+    name_zh: 放大后轴径
+    kind: formula
+    expr: "d_torsion * kw_factor"
+    unit: mm
+    outputs: [d_raw]
+
+  - id: d_shaft
+    name_zh: 取整后轴径
+    kind: formula
+    expr: "ceil(d_raw)"
+    unit: mm
+    note: "向上取整到整毫米。最终轴径还要由轴承内径与轴肩结构决定，并按 GB/T 2822 取标准值"
+    outputs: [d_shaft]
+
+  # ---------- 第 3 步：反算校核 ----------
+  - id: tau_actual
+    name_zh: 实际扭转切应力
+    kind: formula
+    expr: "9550000 * P / (0.2 * d_shaft ** 3 * n)"
+    unit: MPa
+    note: "拿取整后的轴径反算回去，确认取整与放大没有把结论带反"
+    outputs: [tau_actual]
+
+  - id: chk_tau
+    name_zh: 扭转强度校核
+    kind: check
+    value: tau_actual
+    op: "<="
+    limit: tau_allow
+    unit: MPa
+    on_fail: 加大轴径、改用强度更高的材料，或降低传递功率
+    source: {ref: "τT ≤ [τT]" }

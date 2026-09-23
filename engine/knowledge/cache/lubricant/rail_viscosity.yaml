@@ -1,0 +1,95 @@
+---
+data_source: ISO 6743-13《机床导轨润滑剂》；Vickers 导轨油手册；Mobil Vactra Oil 系列样本
+last_verified: 2026-09-20
+verification_status: single_source
+_todo: "需用 Vickers / Mobil Vactra Oil 样本 + 第二个信源（如 FUCHS、克鲁勃）核对"
+unit_notes:
+  ISO_VG: ISO 3448
+  speed: m/min
+---
+
+# 导轨润滑油 / 脂选型
+# 适用：机床滑动导轨、滚动直线导轨、数控工作台、丝杠副
+
+# ---------- 滑动导轨 ----------
+slide_rail_metal_metal:
+  by_speed:
+    slow:
+      v_m_min: "v <= 5"
+      ISO_VG: [32, 46]
+      base_oil: mineral
+      additives: AW + 抗爬行剂
+      typical_products:
+        - "Mobil Vactra Oil Heavy Medium (VG 68)"
+        - "FUCHS ECOCUT 1520"
+    medium:
+      v_m_min: "5 < v <= 15"
+      ISO_VG: [46, 68]
+      base_oil: mineral
+      additives: AW + 抗爬行剂
+      typical_products:
+        - "Mobil Vactra Oil Heavy (VG 68)"
+        - "Shell Tonna S2 M 68"
+    fast:
+      v_m_min: "15 < v <= 60"
+      ISO_VG: [68, 100]
+      base_oil: mineral
+      additives: AW + 抗爬行剂 + R&O
+      typical_products:
+        - "Mobil Vactra Oil Heavy (VG 68)"
+        - "Mobil Vactra Oil Heavy Extra (VG 100)"
+    vertical_or_anti_sag:
+      ISO_VG: [100, 150]
+      notes: "立式导轨需防止油膜剪切导致下滑，用高黏度或导轨脂"
+
+  mandatory_additives:
+    anti_stick_slip_agent:
+      typical_chemicals: [fatty_acid_esters, glycerides]
+      content_percent: [0.5, 2]
+      notes: "金属-金属摩擦必须；否则低速爬行严重"
+    AW_additives:
+      required: true
+      notes: "抗磨，避免导轨表面拉伤"
+
+  not_to_use:
+    - 液压油_HM_或_抗磨液压油_不含抗爬行剂
+    - 普通机械油_黏度指数低
+    - 齿轮油_EP_剂可能腐蚀铜导轨
+
+# ---------- 滑动导轨（塑料-金属）----------
+slide_rail_plastic_metal:
+  rules:
+    - "避免石油基矿物油（塑料溶胀）"
+    - "选 PAO 或酯类合成油"
+    - "ISO VG 较低（22~46）"
+  typical:
+    ISO_VG: [22, 32, 46]
+    base_oil: PAO_or_ester
+    typical_products:
+      - "Klüber Klüberoil 4 UH1-32"
+      - "FUCHEM 0000 SERIES"
+
+# ---------- 滚动直线导轨（与滚动轴承同脂）----------
+rolling_linear_guide:
+  recommendation: 同配套滚动轴承
+  grease_NLGI: [2, 3]
+  thickener: 锂基_复合锂_聚脲
+  base_oil: mineral_or_PAO
+  notes: "可直接用 SKF LGEP 2 / LGHP 2 / Mobil Polyrex EM 等通用脂"
+
+# ---------- 抗爬行校验 ----------
+stick_slip_check:
+  cross_film_lubricant_required: true
+  if_missing_advice: "用普通液压油会发生低速爬行（5~50 mm/min 速度段），需换导轨油"
+
+# 环境修正
+environment_adjustments:
+  dusty:
+    add: "密封导轨 + 防护罩"
+    grease_alternative: "NLGI 2 锂基脂"
+  wet_washdown:
+    add: "抗水复合钙/磺酸钙脂"
+    typical: "SKF LGEP 2 / Mobilux EP 2"
+  food_grade:
+    certifications: [NSF H1]
+    typical: "Klüber Klüberoil 4 UH1"

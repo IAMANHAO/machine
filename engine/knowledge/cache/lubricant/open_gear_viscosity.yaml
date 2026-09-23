@@ -1,0 +1,87 @@
+---
+data_source: ISO 6743-9《润滑剂、工业用油和相关产品（L 类）的分类 第 9 部分：开式齿轮润滑剂》；AGMA 9004-2009；DIN 51517-3
+last_verified: 2026-09-20
+verification_status: single_source
+_todo: "需用 AGMA 9004-2009 表 + 第二个信源（厂商样本如 Mobilgear OGT、克鲁勃 BEKEN 系列）核对"
+unit_notes:
+  pitch_line_velocity: m/s
+  ISO_VG: ISO 3448
+---
+
+# 开式齿轮润滑 —— 节圆速 → 润滑剂形态
+# 适用：大型水泥磨、矿山球磨、堆取料机、港口机械、起重机回转齿轮
+# 标准对比：ISO 6743-9 分类代号 CKJ（重载）；DIN 51502 OG 系列
+
+by_pitch_line_speed:
+  very_slow:
+    v_m_s: "v <= 0.5"
+    recommended_form: 开式齿轮脂
+    NLGI: [0, 1]
+    base_oil: mineral_high_viscosity
+    ISO_VG_typical: [460, 680, 1000]
+    thickener_typical: 钙基_复合铝
+    additives: MoS2 / 石墨 + EP + 黏附剂
+    notes: "刷涂或喷射，每班 1~2 次；典型产品 Mobilux EP 0、Klüber BEKEN 0"
+
+  slow:
+    v_m_s: "0.5 < v <= 2"
+    recommended_form: 半流体脂（NLGI 00~000）
+    ISO_VG_typical: [220, 320, 460]
+    base_oil: mineral
+    additives: AW + EP + 黏附剂 + 防锈
+    notes: "喷射式润滑，需集中泵站；典型产品 Mobilgear OGT、Shell Gadus S5 V460"
+
+  medium:
+    v_m_s: "2 < v <= 5"
+    recommended_form: 半流体脂 / 高黏度闭式齿轮油
+    ISO_VG_typical: [220, 320]
+    base_oil: mineral
+    additives: AW + EP + R&O
+    notes: "可用闭式齿轮箱开式壳体加喷射；推荐 DIN 51517-3 CLP 220"
+
+  fast:
+    v_m_s: "5 < v <= 15"
+    recommended_form: 闭式齿轮箱齿轮油（强制闭式）
+    ISO_VG_typical: [100, 150, 220]
+    base_oil: mineral
+    additives: EP + AW + R&O
+    notes: "高速段开式齿轮不可用，需封闭；选 DIN 51517-3 CLP 系列"
+
+  very_fast:
+    v_m_s: "v > 15"
+    recommended_form: 强制闭式齿轮箱
+    ISO_VG_typical: [68, 100, 150]
+    base_oil: mineral_or_PAO
+    notes: "开式结构不再适用，必须封闭"
+
+# 环境修正
+environment_adjustments:
+  dusty:
+    add: "覆盖厚 + 防尘密封"
+    ISO_VG_shift: "升一档"
+  wet_or_washdown:
+    add: "抗水 EP-R&O + 防锈"
+    thickener_shift: "复合钙/磺酸钙"
+    notes: "户外 / 雨天作业；普通锂基易乳化"
+  outdoor:
+    add: "防锈剂 + 抗氧剂"
+    base_oil_class: mineral_with_R&O_or_PAO
+  food_grade:
+    certifications: [NSF H1]
+    typical_products: ["Klüber Klüberoil 4 UH1", "Mobil DTE FM"]
+    notes: "必须 H1 认证；避免重金属添加剂"
+
+# 典型产品对照
+typical_products:
+  开式齿轮脂_NLGI_0_1:
+    - "Mobil Mobilux EP 0"
+    - "Klüber Klüberlub BE 41-1501"
+    - "Shell Gadus S2 V220 0"
+  半流体脂_NLGI_00:
+    - "Mobil Mobilgear OGT 220"
+    - "Shell Gadus S5 V220 00"
+    - "Klüber Klüberfluid NH 11-461"
+  闭式齿轮油_CLP:
+    - "Mobil Mobilgear 600 XP 220"
+    - "Shell Omala S2 G 220"
+    - "Klüber Klüberoil GEM 1-220 N"

@@ -1,0 +1,403 @@
+## 同步带（梯形齿）选型 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/synchronous_belt.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+#
+# 新增物料 = 写一份同结构的 YAML，不改代码、不重新打包。
+
+schema_version: 1
+material: synchronous_belt
+name_zh: 同步带（梯形齿）
+standard: GB/T 11362-2021
+workflow_doc: workflows/synchronous_belt.md
+
+notes:
+  - "啮合齿数公式：.md 文档写作 zm = ent[0.5 - (d2-d1)/(6a)] × z1，按字面理解 ent() 作用于
+     括号内的 0.47 左右取整恒为 0，zm 必然为 0，显然是转写脱漏。本规格按通行写法实现为
+     zm = ent[z1 × (0.5 - (d2-d1)/(6a))]，即取整作用于整个乘积。
+     .md 文档已于 2026-09-22 按本规格更正并标注勘误；**仍待 GB/T 11362-2021 6.3 节原件确认**。"
+  - "压轴力 FQ = KF(F1+F2) 暂未实现：缓存中没有任何一张表给出 KF 与 F2（按带型取值）。
+     引擎不编造这两个系数，本工作流只输出有效圆周力 F1，FQ 待补数据后再加。"
+  - "带型选择图（依 Pd 与 n1 选带型）在 GB/T 11362-2021 中以图给出，缓存里没有。
+     因此带型是一个 select 步骤，必须由工程师或 AI 决策，引擎不替用户猜。"
+
+inputs:
+  - id: P
+    name_zh: 传递功率
+    unit: kW
+    required: true
+    domain: {min: 0.01, max: 500}
+    hint: 电机名义功率
+
+  - id: n1
+    name_zh: 主动轴转速
+    unit: r/min
+    required: true
+    domain: {min: 10, max: 20000}
+
+  - id: i
+    name_zh: 传动比
+    one_of: ratio
+    domain: {min: 0.1, max: 20}
+    hint: 与从动轴转速二选一
+
+  - id: n2
+    name_zh: 从动轴转速
+    unit: r/min
+    one_of: ratio
+    domain: {min: 1, max: 20000}
+
+  - id: prime_mover
+    name_zh: 原动机类型
+    type: enum
+    required: true
+    options_from: {table: condition_factors, path: prime_movers, label: name_zh}
+
+  - id: work_machine
+    name_zh: 工作机类型
+    type: enum
+    required: true
+    options_from: {table: condition_factors, path: work_machines, label: name_zh}
+
+  - id: hours_per_day
+    name_zh: 每日工作时数
+    type: enum
+    required: true
+    default: h_le_10
+    options:
+      - {value: h_le_10,    label: 每天不超过 10 小时}
+      - {value: h_10_to_16, label: 每天 10 ~ 16 小时}
+      - {value: h_gt_16,    label: 每天超过 16 小时（含连续运转）}
+
+  - id: belt_type
+    name_zh: 带型
+    type: enum
+    options_from: {table: belt_pitch, path: belt_types, label: name_zh}
+    hint: 不填则由阶段 3 的带型决策步骤提示选择
+
+  - id: z1_in
+    name_zh: 小带轮齿数（指定）
+    domain: {min: 10, max: 120}
+    hint: 不填则取该带型该转速下的最小齿数 z1min
+
+  - id: a0
+    name_zh: 初定中心距
+    unit: mm
+    domain: {min: 10, max: 10000}
+    hint: 有结构限制时提供，不填按 1.35(d1+d2) 初定
+
+result:
+  - {label: 带型, value: "{belt_type}"}
+  - {label: 节距 pb, value: "{pb}", unit: mm}
+  - {label: 小带轮齿数 z1, value: "{z1}"}
+  - {label: 大带轮齿数 z2, value: "{z2}"}
+  - {label: 节圆直径 d1 / d2, value: "{d1} / {d2}", unit: mm}
+  - {label: 标准节线长 Lp, value: "{Lp}", unit: mm}
+  - {label: 带齿数 z, value: "{z_belt}"}
+  - {label: 实际中心距 a, value: "{a}", unit: mm}
+  - {label: 带宽 bs, value: "{bs}", unit: mm}
+  - {label: 带速 v, value: "{v}", unit: m/s}
+  - {label: 设计功率 Pd, value: "{Pd}", unit: kW}
+  - {label: 额定功率 Pr, value: "{Pr}", unit: kW}
+  - {label: 有效圆周力 F1, value: "{F1}", unit: N}
+  - {label: 采购关键字, value: "{belt_type} 同步带 带宽{bs} 节线长{Lp}"}
+
+# 数据自检的探测网格：`mds audit` 会按这张网格真跑一遍引擎，
+# 报出哪些工况组合现在根本算不出来。回答的是"这个软件现在到底能选什么"。
+probe:
+  base:
+    P: 5.5
+    i: 2
+    a0: 400
+    prime_mover: ac_motor_normal
+    work_machine: medium_uniform
+    hours_per_day: h_le_10
+  sweep:
+    belt_type: [XL, L, H, XH, XXH]
+    n1: [720, 1450, 2880]
+
+procure:
+  material_template: synchronous_belt
+  channels: [taobao, tmall]
+  fields:
+    model: "{belt_type}"
+    spec: "带宽{bs} 节线长{Lp}"
+    kind: 同步带
+
+steps:
+  # ---------- 第 1 步：设计功率 ----------
+  - id: K_A
+    name_zh: 确定工况系数
+    kind: table_lookup
+    table: condition_factors
+    key: "prime_movers.{prime_mover}.hours.{hours_per_day}.{work_machine}"
+    outputs: [K_A]
+
+  - id: Pd
+    name_zh: 计算设计功率
+    kind: formula
+    expr: "K_A * P"
+    unit: kW
+    source: {ref: "GB/T 11362-2021 设计功率 Pd = K_A × P"}
+    outputs: [Pd]
+
+  # ---------- 第 2 步：带型 ----------
+  - id: belt_type_sel
+    name_zh: 选择带型
+    kind: select
+    from_input: belt_type
+    candidates:
+      table: belt_pitch
+      path: belt_types
+      label_field: name_zh
+      detail_fields: [pitch_pb, vmax, typical_use]
+    reason: "带型需依据设计功率 Pd 与小带轮转速 n1 查 GB/T 11362-2021 带型选择图确定。
+             该图为图形数据，缓存中没有，引擎不做猜测——请结合 Pd 与转速选择带型。"
+    outputs: [belt_type]
+
+  - id: pb
+    name_zh: 节距
+    kind: table_lookup
+    table: belt_pitch
+    key: "belt_types.{belt_type}.pitch_pb"
+    unit: mm
+    outputs: [pb]
+
+  - id: v_max
+    name_zh: 该带型允许最大带速
+    kind: table_lookup
+    table: belt_pitch
+    key: "belt_types.{belt_type}.vmax"
+    unit: m/s
+    outputs: [v_max]
+
+  # ---------- 第 3 步：小带轮齿数 ----------
+  - id: speed_bucket
+    name_zh: 转速分档
+    kind: bucket
+    value: n1
+    bins:
+      - {max: 900, key: n1_le_900}
+      - {max: 1800, key: n1_900_to_1800}
+      - {max: 3600, key: n1_1800_to_3600}
+      - {key: n1_gt_3600}
+    outputs: [speed_bucket]
+
+  - id: z1_min
+    name_zh: 最小小带轮齿数
+    kind: table_lookup
+    table: pulley_teeth_min
+    key: "pulley_min_teeth.{belt_type}.{speed_bucket}"
+    outputs: [z1_min]
+
+  - id: z1
+    name_zh: 小带轮齿数
+    kind: default
+    from_input: z1_in
+    fallback: "z1_min"
+    note: "未指定时取 z1min。在结构允许前提下 z1 取大可增大啮合齿数、降低每齿负载。"
+    outputs: [z1]
+
+  - id: chk_z1
+    name_zh: 小带轮齿数校核
+    kind: check
+    value: z1
+    op: ">="
+    limit: z1_min
+    on_fail: 增大 z1 至 z1min 以上，或改用更小节距的带型
+    source: {ref: "GB/T 11362-2021 最小齿数表"}
+
+  - id: d1
+    name_zh: 小带轮节圆直径
+    kind: formula
+    expr: "z1 * pb / pi"
+    unit: mm
+    outputs: [d1]
+
+  # ---------- 第 4 步：大带轮 ----------
+  - id: ratio
+    name_zh: 传动比
+    kind: default
+    from_input: i
+    fallback: "n1 / n2"
+    outputs: [i]
+
+  - id: z2
+    name_zh: 大带轮齿数
+    kind: formula
+    expr: "round(i * z1)"
+    note: 圆整到整数齿
+    outputs: [z2]
+
+  - id: d2
+    name_zh: 大带轮节圆直径
+    kind: formula
+    expr: "z2 * pb / pi"
+    unit: mm
+    outputs: [d2]
+
+  # ---------- 第 5 步：带速校核 ----------
+  - id: v
+    name_zh: 带速
+    kind: formula
+    expr: "pi * d1 * n1 / 60000"
+    unit: m/s
+    outputs: [v]
+
+  - id: chk_v
+    name_zh: 带速校核
+    kind: check
+    value: v
+    op: "<="
+    limit: v_max
+    unit: m/s
+    on_fail: 减小 z1 或改用小节距带型以降低带速
+    source: {ref: "GB/T 11362-2021 各带型推荐最大带速"}
+
+  # ---------- 第 6 步：中心距与带长 ----------
+  - id: a0_eff
+    name_zh: 初定中心距
+    kind: default
+    from_input: a0
+    fallback: "1.35 * (d1 + d2)"
+    unit: mm
+    note: "未提供时取 0.7(d1+d2) ~ 2(d1+d2) 推荐区间的中部"
+    outputs: [a0_eff]
+
+  - id: chk_a0_lo
+    name_zh: 初定中心距下限校核
+    kind: check
+    value: a0_eff
+    op: ">="
+    limit: "0.7 * (d1 + d2)"
+    unit: mm
+    on_fail: 中心距过小，包角与啮合齿数不足，需加大中心距
+
+  - id: chk_a0_hi
+    name_zh: 初定中心距上限校核
+    kind: check
+    value: a0_eff
+    op: "<="
+    limit: "2 * (d1 + d2)"
+    unit: mm
+    on_fail: 中心距过大，带长与振动增加，建议缩小中心距或加张紧轮
+
+  - id: L0
+    name_zh: 初算节线长
+    kind: formula
+    expr: "2 * a0_eff + pi * (d1 + d2) / 2 + (d2 - d1) ** 2 / (4 * a0_eff)"
+    unit: mm
+    outputs: [L0]
+
+  - id: Lp
+    name_zh: 标准节线长
+    kind: round_to_series
+    table: belt_length_series
+    path: "belt_length.{belt_type}.series"
+    value: L0
+    mode: nearest_above
+    on_exceed: error
+    what: 节线长
+    unit: mm
+    outputs: [Lp]
+
+  - id: a
+    name_zh: 实际中心距
+    kind: formula
+    expr: "a0_eff + (Lp - L0) / 2"
+    unit: mm
+    outputs: [a]
+
+  - id: z_belt
+    name_zh: 带齿数
+    kind: formula
+    expr: "round(Lp / pb)"
+    outputs: [z_belt]
+
+  # ---------- 第 7 步：带宽 ----------
+  - id: zm
+    name_zh: 啮合齿数
+    kind: formula
+    expr: "ent(z1 * (0.5 - (d2 - d1) / (6 * a)))"
+    note: "取整作用于整个乘积。.md 旧版把取整写在括号内（结果恒为 0），已更正；待标准原件确认"
+    source: {ref: "GB/T 11362-2021 6.3 节（待核）"}
+    outputs: [zm]
+
+  - id: chk_zm
+    name_zh: 啮合齿数校核
+    kind: check
+    value: zm
+    op: ">="
+    limit: "6"
+    on_fail: 增大中心距 a 或改用更小节距 pb，以提高啮合齿数
+    source: {ref: "GB/T 11362-2021 6.3 节"}
+
+  - id: Kz
+    name_zh: 啮合齿数系数
+    kind: formula
+    expr: "1 if zm >= 6 else 1 - 0.2 * (6 - zm)"
+    outputs: [Kz]
+
+  - id: P0
+    name_zh: 基准额定功率
+    kind: table_interp
+    table: rated_power
+    group: "belt_type_{belt_type}"
+    rows_key: examples
+    x: n1
+    y: z1
+    z: P0
+    unit: kW
+    outputs: [P0]
+
+  - id: bs0
+    name_zh: 基准带宽
+    kind: table_lookup
+    table: belt_width_series
+    key: "belt_width.{belt_type}.bs0"
+    unit: mm
+    outputs: [bs0]
+
+  - id: bs_req
+    name_zh: 所需最小带宽
+    kind: formula
+    expr: "bs0 * (Pd / (Kz * P0)) ** (1 / 1.14)"
+    unit: mm
+    outputs: [bs_req]
+
+  - id: bs
+    name_zh: 标准带宽
+    kind: round_to_series
+    table: belt_width_series
+    path: "belt_width.{belt_type}.series"
+    value: bs_req
+    mode: nearest_above
+    on_exceed: error
+    what: 带宽
+    unit: mm
+    outputs: [bs]
+
+  # ---------- 第 8 步：额定功率与圆周力 ----------
+  - id: Pr
+    name_zh: 实际额定功率
+    kind: formula
+    expr: "Kz * (bs / bs0) ** 1.14 * P0"
+    unit: kW
+    outputs: [Pr]
+
+  - id: chk_Pr
+    name_zh: 额定功率校核
+    kind: check
+    value: Pr
+    op: ">="
+    limit: Pd
+    unit: kW
+    on_fail: 增大带宽 bs 或改用更大节距带型
+    source: {ref: "GB/T 11362-2021 Pr ≥ Pd"}
+
+  - id: F1
+    name_zh: 有效圆周力
+    kind: formula
+    expr: "Pd * 1000 / v"
+    unit: N
+    outputs: [F1]

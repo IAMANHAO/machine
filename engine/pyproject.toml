@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mds"
+version = "0.1.0"
+description = "机械设计物料选型引擎 —— 确定性内核（Claude skill 与桌面软件共用）"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mds = "mds.__main__:main"
+
+[tool.setuptools]
+packages = ["mds"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

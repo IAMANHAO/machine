@@ -1,0 +1,31 @@
+# 默认让 git 自己判断文本/二进制，并在仓库里统一存成 LF
+* text=auto eol=lf
+
+# PowerShell 脚本必须是 CRLF。
+# 这台项目的目标环境是 Windows PowerShell 5.1，它对 .ps1 的解析比较挑：
+# 没有 UTF-8 BOM 时会按系统 ANSI 码页读，中文直接变乱码并解析失败。
+# BOM 由文件本身携带（git 不会动它），这里只固定换行符。
+*.ps1 text eol=crlf
+
+# 批处理同理
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：不做任何换行转换，也不参与 diff
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.xlsx binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# 锁文件不进 diff 统计，评审时少一屏噪声
+package-lock.json linguist-generated=true
+Cargo.lock linguist-generated=true
+
+# 让 GitHub 的语言统计反映真实构成：
+# 数据表是 YAML 但属于「内容」而非代码，文档同理
+engine/knowledge/** linguist-documentation=true
+docs/** linguist-documentation=true

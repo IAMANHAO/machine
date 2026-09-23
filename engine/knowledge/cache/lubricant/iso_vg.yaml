@@ -1,0 +1,94 @@
+---
+data_source: ISO 3448:1992《工业液体润滑剂 — ISO 黏度等级分类》
+last_verified: 2026-09-20
+verification_status: single_source
+_todo: "ISO 3448 中间 VG 值有 ±10% 公差；本表为中位数，实际样本值应按厂商 PD"
+unit_notes:
+  kinematic_viscosity_cSt_40: cSt at 40 deg C
+  ISO_VG: ISO 3448 grade
+---
+
+# ISO 3448 黏度等级 ↔ cSt@40℃ 对照表
+# 标准范围：每个 VG 中心值 ±10%
+
+ISO_VG_table:
+  - VG: 2
+    cSt_40_mid: 2.2
+    cSt_40_range: [2.0, 2.4]
+  - VG: 3
+    cSt_40_mid: 3.2
+    cSt_40_range: [2.9, 3.5]
+  - VG: 5
+    cSt_40_mid: 4.6
+    cSt_40_range: [4.1, 5.1]
+  - VG: 7
+    cSt_40_mid: 6.8
+    cSt_40_range: [6.1, 7.5]
+  - VG: 10
+    cSt_40_mid: 10
+    cSt_40_range: [9.0, 11.0]
+  - VG: 15
+    cSt_40_mid: 15
+    cSt_40_range: [13.5, 16.5]
+  - VG: 22
+    cSt_40_mid: 22
+    cSt_40_range: [19.8, 24.2]
+  - VG: 32
+    cSt_40_mid: 32
+    cSt_40_range: [28.8, 35.2]
+  - VG: 46
+    cSt_40_mid: 46
+    cSt_40_range: [41.4, 50.6]
+  - VG: 68
+    cSt_40_mid: 68
+    cSt_40_range: [61.2, 74.8]
+  - VG: 100
+    cSt_40_mid: 100
+    cSt_40_range: [90.0, 110.0]
+  - VG: 150
+    cSt_40_mid: 150
+    cSt_40_range: [135.0, 165.0]
+  - VG: 220
+    cSt_40_mid: 220
+    cSt_40_range: [198.0, 242.0]
+  - VG: 320
+    cSt_40_mid: 320
+    cSt_40_range: [288.0, 352.0]
+  - VG: 460
+    cSt_40_mid: 460
+    cSt_40_range: [414.0, 506.0]
+  - VG: 680
+    cSt_40_mid: 680
+    cSt_40_range: [612.0, 748.0]
+  - VG: 1000
+    cSt_40_mid: 1000
+    cSt_40_range: [900.0, 1100.0]
+  - VG: 1500
+    cSt_40_mid: 1500
+    cSt_40_range: [1350.0, 1650.0]
+
+# ISO VG → SAE J300 大致对应（仅常温矿物油）
+ISO_to_SAE_approx:
+  VG_22: "≈ SAE 5W"
+  VG_32: "≈ SAE 10W"
+  VG_46: "≈ SAE 15W-20"
+  VG_68: "≈ SAE 20"
+  VG_100: "≈ SAE 30"
+  VG_150: "≈ SAE 40"
+  VG_220: "≈ SAE 50"
+  VG_320: "≈ SAE 60"
+  notes: "ISO VG 和 SAE J300 体系不同，SAE 含低温冷启动指标；不能用 ISO VG 直接代换 SAE 用于发动机油"
+
+# 温度-黏度估算（Walther 方程近似）
+# 仅用于跨温度黏度估算
+temperature_viscosity:
+  rule_of_thumb: "油温每升 10 deg C，黏度衰减约 10~15 %（矿物油）"
+  example:
+    VG_100_at_40: 100
+    VG_100_at_50: 87
+    VG_100_at_60: 76
+    VG_100_at_70: 66
+    VG_100_at_80: 58
+    VG_100_at_90: 51
+    VG_100_at_100: 45
+  note: "实际换算请用 ASTM D341 或厂商 PD；以上为常压矿物油粗估"

@@ -1,0 +1,313 @@
+## 螺栓（受拉紧螺栓连接）选型 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/bolt.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+#
+# 本工作流是第一个用 row_select 的：按所需应力截面积 As 在螺纹系列里
+# 挑最小满足的规格，并取回该行的 d / P / As。用 round_to_series 做不到——
+# 它只圆整扁平数字列表，拿不回同一行的其它字段。
+
+schema_version: 1
+material: bolt
+name_zh: 螺栓（受拉紧螺栓连接）
+standard: GB/T 196 · GB/T 3098.1-2010 · GB/T 16823.1-1997
+workflow_doc: workflows/bolt.md
+
+notes:
+  - "本工作流只做**受轴向静载荷的紧螺栓连接**。受剪螺栓（挤压与剪切校核）未实现——
+     缓存里没有许用挤压应力 [σp] 与许用切应力 [τ] 的表，编一套出来比不做更糟。"
+  - "输入的是螺栓**所受总拉力 F0_total**（已含残余预紧力与工作载荷分量），不是工作载荷 F。
+     由工作载荷推总拉力需要相对刚度系数 C（取决于被连接件与垫片的刚度比），
+     缓存里没有这张表，所以这一步交给使用者，引擎不替你猜 C。"
+  - "安全系数 S 按直径分档，而直径要算完才知道——这是个迭代。本工作流把迭代**显式化**：
+     不控制预紧力时由用户先选一个假定档位，末尾有一步校核确认算出的规格确实落在该档内。
+     与其把迭代藏进代码，不如让它出现在计算过程里。"
+  - "**合金钢 + 不控制预紧力这一档没有数据。** 信源只给了笼统的「5.0~5.5」，
+     没有按直径分档，硬填等于编数。选到这个组合会如实报数据缺失并指出缺口。"
+  - "拧紧力矩输出的是**区间**不是单值。K 把螺纹副与支承面摩擦打包成一个经验系数，
+     随表面状态、润滑、垫圈、拧紧速度变化，同一表面处理在不同信源里能差近一倍。
+     给一个两位小数的单值，是在用精度冒充准确。"
+  - "**不计算螺栓长度。** 长度取决于被连接件总厚度、垫圈、螺母高度与伸出量，
+     属于结构尺寸而非强度计算。采购时需自行补上（如 M12×50）。"
+
+inputs:
+  - id: F0_total
+    name_zh: 螺栓所受总拉力
+    unit: N
+    required: true
+    domain: {min: 1, max: 10000000}
+    hint: 已含残余预紧力与工作载荷分量，不是工作载荷本身
+
+  - id: z
+    name_zh: 受力螺栓个数
+    required: true
+    default: 1
+    domain: {min: 1, max: 200}
+    hint: 总拉力在这些螺栓间均分
+
+  - id: grade
+    name_zh: 性能等级
+    type: enum
+    required: true
+    default: c8_8
+    options_from: {table: property_class, path: classes, label: name_zh}
+
+  - id: material_class
+    name_zh: 材料类别
+    type: enum
+    required: true
+    default: carbon_steel
+    options:
+      - {value: carbon_steel, label: 碳素钢}
+      - {value: alloy_steel, label: 合金钢}
+    hint: 决定预紧力系数与安全系数取哪一行。8.8 级既可能是中碳钢调质也可能是合金钢，按实际材质选
+
+  - id: preload_control
+    name_zh: 预紧力控制方式
+    type: enum
+    required: true
+    default: uncontrolled
+    options:
+      - {value: uncontrolled, label: 不控制（凭手感拧紧）}
+      - {value: controlled, label: 控制（力矩扳手 / 转角法 / 测伸长量）}
+
+  - id: d_band
+    name_zh: 假定直径档
+    type: enum
+    required_when: "preload_control == 'uncontrolled'"
+    default: d_16_to_30
+    options:
+      - {value: d_le_16, label: M6 ~ M16}
+      - {value: d_16_to_30, label: M16 ~ M30}
+      - {value: d_30_to_60, label: M30 ~ M60}
+    hint: 安全系数按直径分档，先假定一档，算完会校核是否落在该档内
+
+  - id: surface
+    name_zh: 表面状态与润滑
+    type: enum
+    required: true
+    default: general_dry
+    options_from: {table: torque_coeff, path: by_surface, label: name_zh}
+
+result:
+  - {label: 螺栓规格, value: "{size_label}"}
+  - {label: 性能等级, value: "{grade_code}"}
+  - {label: 公称直径 d, value: "{d_bolt}", unit: mm}
+  - {label: 螺距 P, value: "{pitch}", unit: mm}
+  - {label: 应力截面积 As, value: "{As_actual}", unit: mm²}
+  - {label: 屈服强度 σs, value: "{sigma_s}", unit: MPa}
+  - {label: 安全系数 S, value: "{S}"}
+  - {label: "许用应力 [σ]", value: "{sigma_allow}", unit: MPa}
+  - {label: 所需应力截面积, value: "{As_req}", unit: mm²}
+  - {label: 实际工作应力, value: "{sigma_actual}", unit: MPa}
+  - {label: 设计预紧力 F0, value: "{F_pre}", unit: N}
+  - {label: 拧紧力矩, value: "{T_label}"}
+  - {label: 采购关键字, value: "六角头螺栓 {size_label} {grade_code}级（长度另定）"}
+
+# 逐条列举：控制与不控制预紧力要的参数不是一套，笛卡尔积表达不了
+probe:
+  base:
+    z: 1
+    surface: general_dry
+  cases:
+    - {name: 碳素钢·不控制·中档, F0_total: 20000, grade: c8_8, material_class: carbon_steel, preload_control: uncontrolled, d_band: d_16_to_30}
+    - {name: 碳素钢·不控制·小档, F0_total: 3000, grade: c4_8, material_class: carbon_steel, preload_control: uncontrolled, d_band: d_le_16}
+    - {name: 碳素钢·不控制·大档, F0_total: 200000, grade: c8_8, material_class: carbon_steel, preload_control: uncontrolled, d_band: d_30_to_60}
+    - {name: 合金钢·控制预紧力, F0_total: 50000, grade: c10_9, material_class: alloy_steel, preload_control: controlled}
+    - {name: 碳素钢·控制预紧力, F0_total: 20000, grade: c8_8, material_class: carbon_steel, preload_control: controlled}
+    - {name: 合金钢·不控制（表内无此档）, F0_total: 50000, grade: c10_9, material_class: alloy_steel, preload_control: uncontrolled, d_band: d_16_to_30}
+    - {name: 超出最大规格（应判系列内无解）, F0_total: 5000000, grade: c4_8, material_class: carbon_steel, preload_control: controlled}
+
+procure:
+  material_template: fastener
+  channels: [taobao, tmall, jd]
+  fields:
+    kind: 六角头螺栓
+    spec: "{size_label}"
+    grade: "{grade_code}级"
+
+steps:
+  # ---------- 第 1 步：材料强度 ----------
+  - id: sigma_s
+    name_zh: 公称屈服强度
+    kind: table_lookup
+    table: property_class
+    key: "classes.{grade}.sigma_s"
+    unit: MPa
+    outputs: [sigma_s]
+
+  - id: grade_code
+    name_zh: 性能等级代号
+    kind: table_lookup
+    table: property_class
+    key: "classes.{grade}.code"
+    note: "缓存键写作 c8_8（路径以点分段，键里不能带点），真正的代号存在 code 字段"
+    outputs: [grade_code]
+
+  - id: Rm
+    name_zh: 公称抗拉强度
+    kind: table_lookup
+    table: property_class
+    key: "classes.{grade}.Rm"
+    unit: MPa
+    outputs: [Rm]
+
+  # ---------- 第 2 步：安全系数与许用应力 ----------
+  # 两条分支各自产出 S，用 when 守卫隔开
+  - id: S_controlled
+    name_zh: 安全系数（控制预紧力）
+    kind: table_lookup
+    when: "preload_control == 'controlled'"
+    table: safety_factor
+    key: "controlled.S"
+    note: "预紧力可控后误差收敛，S 与直径、材料都无关"
+    outputs: [S]
+
+  - id: S_uncontrolled
+    name_zh: 安全系数（不控制预紧力）
+    kind: table_lookup
+    when: "preload_control == 'uncontrolled'"
+    table: safety_factor
+    key: "uncontrolled.{material_class}.{d_band}.S"
+    note: "按材料与假定直径档查。小直径螺栓 S 更大——小螺栓容易被拧过头拧断"
+    outputs: [S]
+
+  - id: sigma_allow
+    name_zh: 许用应力
+    kind: formula
+    expr: "sigma_s / S"
+    unit: MPa
+    source: {ref: "[σ] = σs / S"}
+    outputs: [sigma_allow]
+
+  # ---------- 第 3 步：所需应力截面积与选规格 ----------
+  - id: As_req
+    name_zh: 所需应力截面积
+    kind: formula
+    expr: "1.3 * F0_total / (z * sigma_allow)"
+    unit: mm²
+    note: "1.3 是紧螺栓连接的扭转附加系数：拧紧时螺栓同时受拉与受扭，按拉伸当量放大"
+    source: {ref: "紧螺栓连接 σca = 1.3 F0 / As ≤ [σ]"}
+    outputs: [As_req]
+
+  - id: bolt_size
+    name_zh: 选螺栓规格
+    kind: row_select
+    table: thread_series
+    rows_key: coarse
+    order_by: As
+    where:
+      - {field: As, op: ">=", value: As_req}
+    what: 螺栓规格
+    fields:
+      label: size_label
+      d: d_bolt
+      P: pitch
+      As: As_actual
+    outputs: [size_label, d_bolt, pitch, As_actual]
+
+  # ---------- 第 4 步：强度校核 ----------
+  - id: sigma_actual
+    name_zh: 实际工作应力
+    kind: formula
+    expr: "1.3 * F0_total / (z * As_actual)"
+    unit: MPa
+    outputs: [sigma_actual]
+
+  - id: chk_strength
+    name_zh: 拉伸强度校核
+    kind: check
+    value: sigma_actual
+    op: "<="
+    limit: sigma_allow
+    unit: MPa
+    on_fail: 提高性能等级、增加螺栓个数，或改用更大规格
+    source: {ref: "σca ≤ [σ]"}
+
+  # 假定的直径档必须与算出的规格一致，否则安全系数取错了，要改档重算
+  - id: band_lo
+    name_zh: 假定档下界
+    kind: table_lookup
+    when: "preload_control == 'uncontrolled'"
+    table: safety_factor
+    key: "diameter_bands.{d_band}.min"
+    unit: mm
+    outputs: [band_lo]
+
+  - id: band_hi
+    name_zh: 假定档上界
+    kind: table_lookup
+    when: "preload_control == 'uncontrolled'"
+    table: safety_factor
+    key: "diameter_bands.{d_band}.max"
+    unit: mm
+    outputs: [band_hi]
+
+  - id: chk_band_lo
+    name_zh: 假定直径档校核（下界）
+    kind: check
+    when: "preload_control == 'uncontrolled'"
+    value: d_bolt
+    op: ">="
+    limit: band_lo
+    unit: mm
+    on_fail: 算出的规格小于假定档，安全系数取小了，请改选更小的直径档重算
+
+  - id: chk_band_hi
+    name_zh: 假定直径档校核（上界）
+    kind: check
+    when: "preload_control == 'uncontrolled'"
+    value: d_bolt
+    op: "<="
+    limit: band_hi
+    unit: mm
+    on_fail: 算出的规格超出假定档，安全系数取大了，请改选更大的直径档重算
+
+  # ---------- 第 5 步：预紧力与拧紧力矩 ----------
+  - id: preload_ratio
+    name_zh: 预紧力系数
+    kind: table_lookup
+    table: torque_coeff
+    key: "preload_ratio.{material_class}.min"
+    note: "取推荐区间下端，偏保守。碳素钢 0.6~0.7 σs·As，合金钢 0.5~0.6 σs·As"
+    outputs: [preload_ratio]
+
+  - id: F_pre
+    name_zh: 设计预紧力
+    kind: formula
+    expr: "preload_ratio * sigma_s * As_actual"
+    unit: N
+    source: {ref: "F0 = (0.5~0.7) σs · As"}
+    outputs: [F_pre]
+
+  - id: K_pick
+    name_zh: 查拧紧力矩系数
+    kind: table_pick
+    table: torque_coeff
+    key: "by_surface.{surface}"
+    fields:
+      K_min: K_min
+      K_max: K_max
+      name_zh: surface_label
+    outputs: [K_min, K_max, surface_label]
+
+  - id: T_min
+    name_zh: 拧紧力矩下限
+    kind: formula
+    expr: "K_min * F_pre * d_bolt / 1000"
+    unit: N·m
+    source: {ref: "T = K · F0 · d"}
+    outputs: [T_min]
+
+  - id: T_max
+    name_zh: 拧紧力矩上限
+    kind: formula
+    expr: "K_max * F_pre * d_bolt / 1000"
+    unit: N·m
+    outputs: [T_max]
+
+  - id: T_label
+    name_zh: 拧紧力矩区间
+    kind: text
+    template: "{T_min} ~ {T_max} N·m（{surface_label}）"
+    outputs: [T_label]

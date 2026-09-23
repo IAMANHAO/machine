@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机械选型引擎 · UI 原型</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg:#0b1117; --panel:#121b24; --panel2:#18242f; --line:#243444;
+    --txt:#e6edf3; --sub:#8ba0b3; --brand:#3b82f6; --brand2:#06b6d4;
+    --ok:#10b981; --warn:#f59e0b; --err:#ef4444;
+  }
+  html,body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .num{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-variant-numeric:tabular-nums;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;}
+  .card2{background:var(--panel2);border:1px solid var(--line);border-radius:8px;}
+  .btn{border-radius:8px;padding:7px 14px;font-size:13px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);transition:.15s;cursor:pointer;}
+  .btn:hover{border-color:#3b82f6;background:#1d2b3a;}
+  .btn-p{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600;}
+  .btn-p:hover{background:#2563eb;border-color:#2563eb;}
+  .btn-ok{background:var(--ok);border-color:var(--ok);color:#052e1f;font-weight:600;}
+  .badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);}
+  .b-ok{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.4);color:#34d399;}
+  .b-warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.4);color:#fbbf24;}
+  .b-err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.4);color:#f87171;}
+  .b-info{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.4);color:#60a5fa;}
+  .inp{width:100%;background:#0d161e;border:1px solid var(--line);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--txt);outline:none;}
+  .inp:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(59,130,246,.15);}
+  .inp.err{border-color:var(--err);box-shadow:0 0 0 3px rgba(239,68,68,.12);}
+  .step{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font-size:13px;color:var(--sub);cursor:pointer;border:1px solid transparent;}
+  .step:hover{background:var(--panel2);color:var(--txt);}
+  .step.on{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd;}
+  .step.done{color:#34d399;}
+  .dot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;border:1px solid var(--line);flex:none;}
+  .step.on .dot{background:var(--brand);border-color:var(--brand);color:#fff;}
+  .step.done .dot{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.5);color:#34d399;}
+  .tab{padding:9px 14px;font-size:13px;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;}
+  .tab.on{color:var(--txt);border-bottom-color:var(--brand);}
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tbl th{text-align:left;padding:9px 11px;background:var(--panel2);color:var(--sub);font-weight:500;border-bottom:1px solid var(--line);}
+  .tbl td{padding:9px 11px;border-bottom:1px solid rgba(36,52,68,.6);}
+  .tbl tr:hover td{background:rgba(59,130,246,.05);}
+  .msg{padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.55;max-width:92%;}
+  .msg-ai{background:var(--panel2);border:1px solid var(--line);}
+  .msg-me{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);margin-left:auto;}
+  .conf{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .scroll::-webkit-scrollbar{width:8px;height:8px}
+  .scroll::-webkit-scrollbar-thumb{background:#243444;border-radius:8px}
+  .scroll::-webkit-scrollbar-track{background:transparent}
+  .page{display:none}.page.on{display:block}
+  .kbd{font-family:ui-monospace,monospace;font-size:11px;background:#0d161e;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:#93c5fd}
+  @media(max-width:1024px){
+    .side{display:none}.right{display:none}
+    .mobile-nav{display:flex !important}
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ══════════ 顶部栏 ══════════ -->
+<header class="sticky top-0 z-40 border-b" style="background:rgba(11,17,23,.92);backdrop-filter:blur(10px);border-color:var(--line)">
+  <div class="max-w-[1600px] mx-auto px-4 h-14 flex items-center gap-3">
+    <div class="flex items-center gap-2 font-semibold text-[15px]">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>
+      </svg>
+      <span>机械选型引擎</span>
+    </div>
+
+    <!-- 模式切换 -->
+    <div class="ml-4 flex items-center gap-1 p-0.5 rounded-lg" style="background:var(--panel2);border:1px solid var(--line)">
+      <button onclick="setMode('online')" id="m-on" class="px-3 py-1 rounded-md text-[12px] font-medium">在线</button>
+      <button onclick="setMode('offline')" id="m-off" class="px-3 py-1 rounded-md text-[12px]">离线</button>
+      <button onclick="setMode('auto')" id="m-auto" class="px-3 py-1 rounded-md text-[12px]">自动</button>
+    </div>
+    <span id="net-badge" class="badge b-ok"><span class="conf" style="background:#34d399"></span>已连接</span>
+
+    <div class="flex-1"></div>
+
+    <nav class="hidden md:flex items-center gap-1 text-[13px]">
+      <button onclick="go('home')" class="btn" data-nav="home">项目中心</button>
+      <button onclick="go('step2')" class="btn" data-nav="work">选型工作台</button>
+      <button onclick="go('knowledge')" class="btn" data-nav="knowledge">知识库</button>
+      <button onclick="go('settings')" class="btn" data-nav="settings">设置</button>
+    </nav>
+  </div>
+</header>
+
+<!-- ══════════ 页面容器 ══════════ -->
+<main class="max-w-[1600px] mx-auto px-4 py-5">
+
+<!-- ─────── 页面：项目中心 ─────── -->
+<section id="p-home" class="page on">
+  <div class="card p-5 mb-5">
+    <div class="text-[13px] mb-2" style="color:var(--sub)">自然语言输入工况，自动识别物料并进入选型流程</div>
+    <div class="flex gap-2 flex-col md:flex-row">
+      <input class="inp flex-1" value="帮我选一根同步带，电机功率 5.5 kW，转速 1450 r/min，中心距 400 mm" id="home-input">
+      <button class="btn btn-p whitespace-nowrap" onclick="go('step2')">开始选型 →</button>
+    </div>
+    <div class="mt-2 text-[11px]" style="color:var(--sub)">
+      离线模式：<span class="kbd">规则匹配</span> ｜ 在线模式：<span class="kbd">DeepSeek 解析</span>
+    </div>
+  </div>
+
+  <div class="mb-2 text-[13px] font-medium">快捷物料入口</div>
+  <div class="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-12 gap-2 mb-6">
+    <!-- 已支持 -->
+    <button onclick="go('step2')" class="card p-3 text-center hover:border-blue-500 transition">
+      <div class="text-[22px] mb-1">⏱</div><div class="text-[12px]">同步带</div>
+      <div class="badge b-ok mt-1" style="font-size:10px">已支持</div>
+    </button>
+    <button onclick="alert('润滑油工作流已就绪')" class="card p-3 text-center hover:border-blue-500 transition">
+      <div class="text-[22px] mb-1">🛢</div><div class="text-[12px]">润滑油</div>
+      <div class="badge b-ok mt-1" style="font-size:10px">已支持</div>
+    </button>
+    <!-- 待生成 -->
+    <button onclick="alert('将启动新物料工作流生成：齿轮')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">⚙</div><div class="text-[12px]">齿轮</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：轴承')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">◉</div><div class="text-[12px]">轴承</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：螺栓')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">🔩</div><div class="text-[12px]">螺栓</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：键')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">▬</div><div class="text-[12px]">键</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：联轴器')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">⇄</div><div class="text-[12px]">联轴器</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：弹簧')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">⌇</div><div class="text-[12px]">弹簧</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：轴')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">│</div><div class="text-[12px]">轴</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：链轮')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">⛓</div><div class="text-[12px]">链轮</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：减速器')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">▤</div><div class="text-[12px]">减速器</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：密封件')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">◎</div><div class="text-[12px]">密封件</div>
+      <div class="badge b-warn mt-1" style="font-size:10px">待生成</div>
+    </button>
+    <button onclick="alert('将启动新物料工作流生成：自定义')" class="card p-3 text-center opacity-60 hover:opacity-100 transition">
+      <div class="text-[22px] mb-1">＋</div><div class="text-[12px]">其他</div>
+      <div class="badge b-info mt-1" style="font-size:10px">自定义</div>
+    </button>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-4">
+    <div>
+      <div class="mb-2 text-[13px] font-medium">最近项目</div>
+      <div class="card p-4 mb-3 hover:border-blue-500 transition cursor-pointer" onclick="go('step5')">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-medium text-[14px]">同步带选型 #024</div>
+          <span class="badge b-ok">已出结果</span>
+        </div>
+        <div class="text-[12px]" style="color:var(--sub)">5.5 kW · 1450 r/min · 中心距 400 mm</div>
+        <div class="text-[11px] mt-2" style="color:var(--sub)">盖茨 8M · 带宽 20 · 节线长 1200 · 2026-09-21</div>
+      </div>
+      <div class="card p-4 hover:border-blue-500 transition cursor-pointer" onclick="go('step2')">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-medium text-[14px]">润滑油选型 #023</div>
+          <span class="badge b-warn">待补参数</span>
+        </div>
+        <div class="text-[12px]" style="color:var(--sub)">导轨润滑 · 中负荷 · 缺失：环境温度、换油周期</div>
+      </div>
+    </div>
+    <div>
+      <div class="mb-2 text-[13px] font-medium">缓存与信源状态</div>
+      <div class="card p-4">
+        <div class="flex justify-between text-[13px] mb-3">
+          <span>同步带数据表</span>
+          <span class="badge b-ok">🟢 6 张已核验</span>
+        </div>
+        <div class="flex justify-between text-[13px] mb-3">
+          <span>润滑油数据表</span>
+          <span class="badge b-warn">🟡 3 张单源</span>
+        </div>
+        <div class="flex justify-between text-[13px] mb-4">
+          <span>最近同步</span>
+          <span class="num text-[12px]" style="color:var(--sub)">2026-09-21 09:14</span>
+        </div>
+        <button class="btn w-full" onclick="go('knowledge')">查看知识库 →</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────── 页面：工作台（含步骤 2/3/4/5） ─────── -->
+<section id="p-work" class="page">
+  <div class="grid lg:grid-cols-[210px_1fr_320px] gap-4">
+
+    <!-- 左：步骤导航 -->
+    <aside class="side card p-3 h-fit sticky top-[72px]">
+      <div class="text-[11px] px-2 mb-2" style="color:var(--sub)">同步带 · 选型流程</div>
+      <div class="space-y-1">
+        <div class="step done" onclick="setStep(0)"><span class="dot">✓</span>0 物料识别</div>
+        <div class="step done" onclick="setStep(1)"><span class="dot">✓</span>1 依据检索</div>
+        <div class="step on"   onclick="setStep(2)"><span class="dot">2</span>2 参数引导</div>
+        <div class="step"      onclick="setStep(3)"><span class="dot">3</span>3 分步计算</div>
+        <div class="step"      onclick="setStep(4)"><span class="dot">4</span>4 校核</div>
+        <div class="step"      onclick="setStep(5)"><span class="dot">5</span>5 结果输出</div>
+        <div class="step"      onclick="setStep(6)"><span class="dot">6</span>6 采购链接</div>
+      </div>
+      <div class="mt-4 pt-3 border-t text-[11px]" style="border-color:var(--line);color:var(--sub)">
+        <div class="mb-1">工作流：<span class="kbd">synchronous_belt.md</span></div>
+        <div>信源：GB/T 11362-2021</div>
+      </div>
+    </aside>
+
+    <!-- 中：工作区 -->
+    <div class="min-w-0">
+
+      <!-- 阶段 2：参数引导 -->
+      <div id="s2" class="stepbody">
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="text-[15px] font-semibold">阶段 2 · 参数引导</div>
+              <div class="text-[12px] mt-0.5" style="color:var(--sub)">依据 GB/T 11362-2021 选型流程，请补充以下工况参数</div>
+            </div>
+            <span class="badge b-warn">缺失 2 项</span>
+          </div>
+
+          <div class="text-[12px] font-medium mb-2" style="color:#93c5fd">必需参数</div>
+          <div class="grid md:grid-cols-2 gap-3 mb-5">
+            <div>
+              <label class="text-[12px] block mb-1.5">电机功率 <span style="color:var(--sub)">P（kW）</span></label>
+              <div class="flex gap-2">
+                <input class="inp num" value="5.5">
+                <span class="badge b-ok self-center">已获取</span>
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] block mb-1.5">小带轮转速 <span style="color:var(--sub)">n（r/min）</span></label>
+              <div class="flex gap-2">
+                <input class="inp num" value="1450">
+                <span class="badge b-ok self-center">已获取</span>
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] block mb-1.5">工况系数 <span style="color:var(--sub)">K_A</span></label>
+              <div class="flex gap-2">
+                <input class="inp num" value="1.2">
+                <button class="btn whitespace-nowrap" onclick="aiFill('K_A')">AI 推荐</button>
+              </div>
+              <div class="text-[11px] mt-1" style="color:var(--sub)">载荷平稳 / 电动机驱动 → 1.2（表 3）</div>
+            </div>
+            <div>
+              <label class="text-[12px] block mb-1.5">中心距 <span style="color:var(--sub)">a（mm）</span></label>
+              <div class="flex gap-2">
+                <input class="inp num" value="400">
+                <span class="badge b-ok self-center">已获取</span>
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] block mb-1.5">小带轮齿数 <span style="color:var(--sub)">z₁</span></label>
+              <div class="flex gap-2">
+                <input class="inp num err" placeholder="请输入">
+                <button class="btn whitespace-nowrap" onclick="aiFill('z1')">AI 推荐</button>
+              </div>
+              <div class="text-[11px] mt-1" style="color:var(--err)">缺失 · 建议 ≥ 18（8M 节距）</div>
+            </div>
+            <div>
+              <label class="text-[12px] block mb-1.5">传动比 <span style="color:var(--sub)">i</span></label>
+              <div class="flex gap-2">
+                <input class="inp num err" placeholder="请输入">
+                <span class="badge b-warn self-center">缺失</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-[12px] font-medium mb-2" style="color:var(--sub)">可选参数（有结构限制时提供）</div>
+          <div class="grid md:grid-cols-2 gap-3 mb-5">
+            <div>
+              <label class="text-[12px] block mb-1.5">允许最大带速 <span style="color:var(--sub)">v_max（m/s）</span></label>
+              <input class="inp num" placeholder="默认 40">
+            </div>
+            <div>
+              <label class="text-[12px] block mb-1.5">带宽限制 <span style="color:var(--sub)">（mm）</span></label>
+              <input class="inp num" placeholder="默认按标准系列">
+            </div>
+          </div>
+
+          <div class="flex gap-2 pt-3 border-t" style="border-color:var(--line)">
+            <button class="btn">保存草稿</button>
+            <div class="flex-1"></div>
+            <button class="btn btn-p" onclick="setStep(3)">开始计算 →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 阶段 3：分步计算 -->
+      <div id="s3" class="stepbody" style="display:none">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[15px] font-semibold">阶段 3 · 分步计算</div>
+          <span class="badge b-info">每一步均可追溯信源</span>
+        </div>
+
+        <!-- 计算卡片 1 -->
+        <div class="card p-4 mb-3">
+          <div class="flex items-start justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="badge b-info">第 1 步</span>
+              <span class="font-medium text-[14px]">确定工况系数 K_A</span>
+            </div>
+            <span class="badge b-ok">🟢 verified</span>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3 text-[13px]">
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">公式</div><div class="num">K_A = f(载荷性质, 原动机)</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">依据</div><div>GB/T 11362-2021 表 3</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">代入 / 结果</div><div class="num">载荷平稳 + 电动机 → <b style="color:#34d399">1.2</b></div></div>
+          </div>
+        </div>
+
+        <!-- 计算卡片 2 -->
+        <div class="card p-4 mb-3">
+          <div class="flex items-start justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="badge b-info">第 2 步</span>
+              <span class="font-medium text-[14px]">计算设计功率 P_d</span>
+            </div>
+            <span class="badge b-ok">🟢 verified</span>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3 text-[13px]">
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">公式</div><div class="num">P_d = K_A × P</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">代入</div><div class="num">1.2 × 5.5 = 6.6</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">结果</div><div class="num"><b style="color:#34d399">P_d = 6.6 kW</b></div></div>
+          </div>
+        </div>
+
+        <!-- 计算卡片 3 -->
+        <div class="card p-4 mb-3">
+          <div class="flex items-start justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="badge b-info">第 3 步</span>
+              <span class="font-medium text-[14px]">选择节距与带轮齿数</span>
+            </div>
+            <span class="badge b-ok">🟢 verified</span>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3 text-[13px]">
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">依据</div><div>GB/T 11362-2021 表 1 / 表 5</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">选择</div><div class="num">8M 节距 · z₁=18 · z₂=36</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">传动比</div><div class="num"><b style="color:#34d399">i = 2.0</b></div></div>
+          </div>
+        </div>
+
+        <!-- 计算卡片 4 -->
+        <div class="card p-4 mb-3">
+          <div class="flex items-start justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="badge b-info">第 4 步</span>
+              <span class="font-medium text-[14px]">计算带速 v</span>
+            </div>
+            <span class="badge b-ok">🟢 verified</span>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3 text-[13px]">
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">公式</div><div class="num">v = π·d·n / 60000</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">代入</div><div class="num">π × 45.9 × 1450 / 60000</div></div>
+            <div><div style="color:var(--sub)" class="text-[11px] mb-1">结果</div><div class="num"><b style="color:#fbbf24">v = 3.48 m/s</b></div></div>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn" onclick="setStep(2)">← 上一步</button>
+          <div class="flex-1"></div>
+          <button class="btn btn-p" onclick="setStep(4)">进入校核 →</button>
+        </div>
+      </div>
+
+      <!-- 阶段 4：校核 -->
+      <div id="s4" class="stepbody" style="display:none">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[15px] font-semibold">阶段 4 · 校核</div>
+          <span class="badge b-ok">4 / 4 项通过</span>
+        </div>
+
+        <div class="card p-4 mb-2 flex items-center justify-between">
+          <div>
+            <div class="text-[13px]">带速 <span class="num">v = 3.48 m/s</span> ≤ 40 m/s</div>
+            <div class="text-[11px] mt-0.5" style="color:var(--sub)">依据：GB/T 11362-2021 表 4</div>
+          </div>
+          <span class="badge b-ok">✅ 通过</span>
+        </div>
+
+        <div class="card p-4 mb-2 flex items-center justify-between">
+          <div>
+            <div class="text-[13px]">小带轮齿数 <span class="num">z₁ = 18</span> ≥ 18</div>
+            <div class="text-[11px] mt-0.5" style="color:var(--sub)">依据：GB/T 11362-2021 表 5</div>
+          </div>
+          <span class="badge b-ok">✅ 通过</span>
+        </div>
+
+        <div class="card p-4 mb-2 flex items-center justify-between">
+          <div>
+            <div class="text-[13px]">啮合齿数 <span class="num">z_m = 6.2</span> ≥ 6</div>
+            <div class="text-[11px] mt-0.5" style="color:var(--sub)">依据：GB/T 11362-2021 6.3 节</div>
+          </div>
+          <span class="badge b-ok">✅ 通过</span>
+        </div>
+
+        <div class="card p-4 mb-2 flex items-center justify-between">
+          <div>
+            <div class="text-[13px]">额定功率 <span class="num">P₀ = 7.2 kW</span> ≥ P_d = 6.6 kW</div>
+            <div class="text-[11px] mt-0.5" style="color:var(--sub)">依据：GB/T 11362-2021 表 7</div>
+          </div>
+          <span class="badge b-ok">✅ 通过</span>
+        </div>
+
+        <div class="card p-4 mb-4" style="border-color:rgba(16,185,129,.4)">
+          <div class="text-[13px]" style="color:#34d399">✅ 全部校核通过，可进入结果输出</div>
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn" onclick="setStep(3)">← 上一步</button>
+          <div class="flex-1"></div>
+          <button class="btn btn-p" onclick="setStep(5)">生成结果 →</button>
+        </div>
+      </div>
+
+      <!-- 阶段 5+6：结果与采购 -->
+      <div id="s5" class="stepbody" style="display:none">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[15px] font-semibold">阶段 5 · 结果输出</div>
+          <div class="flex gap-2">
+            <button class="btn">导出 PDF</button>
+            <button class="btn">导出 Excel</button>
+          </div>
+        </div>
+
+        <div class="card p-4 mb-4">
+          <div class="text-[12px] font-medium mb-2" style="color:#93c5fd">表 1 · 计算过程汇总</div>
+          <div class="overflow-x-auto scroll">
+            <table class="tbl">
+              <thead><tr><th>序号</th><th>项目</th><th>符号</th><th>计算值</th><th>单位</th><th>公式 / 依据</th></tr></thead>
+              <tbody>
+                <tr><td class="num">1</td><td>工况系数</td><td class="num">K_A</td><td class="num">1.2</td><td>—</td><td>GB/T 11362-2021 表 3</td></tr>
+                <tr><td class="num">2</td><td>设计功率</td><td class="num">P_d</td><td class="num">6.6</td><td>kW</td><td class="num">P_d = K_A × P</td></tr>
+                <tr><td class="num">3</td><td>节距</td><td class="num">p</td><td class="num">8</td><td>mm</td><td>GB/T 11362-2021 表 1</td></tr>
+                <tr><td class="num">4</td><td>小带轮齿数</td><td class="num">z₁</td><td class="num">18</td><td>—</td><td>GB/T 11362-2021 表 5</td></tr>
+                <tr><td class="num">5</td><td>大带轮齿数</td><td class="num">z₂</td><td class="num">36</td><td>—</td><td class="num">z₂ = i × z₁</td></tr>
+                <tr><td class="num">6</td><td>带速</td><td class="num">v</td><td class="num">3.48</td><td>m/s</td><td class="num">v = π·d·n / 60000</td></tr>
+                <tr><td class="num">7</td><td>啮合齿数</td><td class="num">z_m</td><td class="num">6.2</td><td>—</td><td>GB/T 11362-2021 6.3 节</td></tr>
+                <tr><td class="num">8</td><td>带宽</td><td class="num">b_s</td><td class="num">20</td><td>mm</td><td>标准系列圆整</td></tr>
+                <tr><td class="num">9</td><td>节线长</td><td class="num">L_p</td><td class="num">1200</td><td>mm</td><td>标准系列圆整</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card p-4 mb-4">
+          <div class="text-[12px] font-medium mb-2" style="color:#93c5fd">表 2 · 最终选型结果</div>
+          <table class="tbl">
+            <tbody>
+              <tr><td style="width:130px;color:var(--sub)">物料型号</td><td>盖茨 8M 同步带 · 梯形齿</td></tr>
+              <tr><td style="color:var(--sub)">带轮</td><td>小带轮 18 齿 / 大带轮 36 齿 · 8M 节距</td></tr>
+              <tr><td style="color:var(--sub)">关键尺寸</td><td class="num">带宽 20 mm · 节线长 1200 mm · 中心距 400 mm</td></tr>
+              <tr><td style="color:var(--sub)">材料 / 等级</td><td>氯丁橡胶 + 玻璃纤维增强</td></tr>
+              <tr><td style="color:var(--sub)">备注</td><td>工况系数 1.2 · 设计功率 6.6 kW · 全部校核通过</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[15px] font-semibold">阶段 6 · 采购链接</div>
+          <span class="badge b-info">由 procure_link.py 生成</span>
+        </div>
+        <div class="card p-4 mb-4">
+          <div class="text-[12px] mb-3" style="color:var(--sub)">关键词：盖茨 8M 同步带 带宽20 节线长1200</div>
+          <div class="flex flex-wrap gap-2">
+            <a href="#" class="btn">🛒 淘宝</a>
+            <a href="#" class="btn">🛍 天猫</a>
+            <a href="#" class="btn">🏭 1688</a>
+            <a href="#" class="btn">📦 京东</a>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn" onclick="setStep(4)">← 上一步</button>
+          <div class="flex-1"></div>
+          <button class="btn">复制结果</button>
+          <button class="btn btn-ok">完成选型</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 右：AI / 依据面板 -->
+    <aside class="right card flex flex-col sticky top-[72px] h-[calc(100vh-96px)]">
+      <div class="flex border-b" style="border-color:var(--line)">
+        <div class="tab on" id="tab-ai" onclick="switchTab('ai')">AI 助手</div>
+        <div class="tab" id="tab-src" onclick="switchTab('src')">依据 / 缓存</div>
+      </div>
+
+      <!-- AI 面板 -->
+      <div id="panel-ai" class="flex-1 flex flex-col min-h-0">
+        <div class="p-3 border-b flex items-center gap-2" style="border-color:var(--line)">
+          <span class="badge b-info">deepseek-flash</span>
+          <span class="text-[11px]" style="color:var(--sub)">缓存命中优化 ✓</span>
+        </div>
+        <div class="flex-1 overflow-y-auto scroll p-3 space-y-3">
+          <div class="msg msg-me">帮我选同步带，5.5 kW，1450 r/min，中心距 400 mm。</div>
+          <div class="msg msg-ai">
+            已识别为 <b>梯形齿同步带选型</b>。根据 GB/T 11362-2021，还需要：
+            <ul class="mt-1.5 ml-4 list-disc space-y-0.5" style="color:var(--sub)">
+              <li>工况系数 K_A（建议 1.2~1.5）</li>
+              <li>小带轮齿数 z₁（8M 建议 ≥18）</li>
+              <li>传动比 i</li>
+            </ul>
+            <div class="mt-2 flex gap-2">
+              <button class="btn text-[11px] py-1 px-2.5" onclick="aiFill('all')">按推荐值填充</button>
+              <button class="btn text-[11px] py-1 px-2.5">手动输入</button>
+            </div>
+          </div>
+          <div class="msg msg-ai">
+            已按推荐值填充：<span class="num">K_A=1.2, z₁=18, i=2.0</span>。<br>
+            是否开始分步计算？
+            <div class="mt-2"><button class="btn btn-p text-[11px] py-1 px-2.5" onclick="setStep(3)">开始计算</button></div>
+          </div>
+        </div>
+        <div class="p-3 border-t" style="border-color:var(--line)">
+          <div class="flex gap-1.5 mb-2 flex-wrap">
+            <button class="btn text-[11px] py-1 px-2">解释本步</button>
+            <button class="btn text-[11px] py-1 px-2">推荐参数</button>
+            <button class="btn text-[11px] py-1 px-2">对比方案</button>
+          </div>
+          <div class="flex gap-2">
+            <input class="inp" placeholder="问点什么…">
+            <button class="btn btn-p">↑</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 依据面板 -->
+      <div id="panel-src" class="flex-1 overflow-y-auto scroll p-3" style="display:none">
+        <div class="text-[12px] mb-3" style="color:var(--sub)">本地缓存 · 离线可用</div>
+
+        <div class="card2 p-3 mb-2">
+          <div class="flex items-center justify-between mb-1">
+            <span class="num text-[12px]">condition_factors.yaml</span>
+            <span class="badge b-ok" style="font-size:10px">🟢 verified</span>
+          </div>
+          <div class="text-[11px]" style="color:var(--sub)">GB/T 11362-2021 表 3</div>
+        </div>
+
+        <div class="card2 p-3 mb-2">
+          <div class="flex items-center justify-between mb-1">
+            <span class="num text-[12px]">belt_pitch.yaml</span>
+            <span class="badge b-warn" style="font-size:10px">🟡 single</span>
+          </div>
+          <div class="text-[11px]" style="color:var(--sub)">GB/T 11362-2021 表 1</div>
+        </div>
+
+        <div class="card2 p-3 mb-2">
+          <div class="flex items-center justify-between mb-1">
+            <span class="num text-[12px]">pulley_teeth_min.yaml</span>
+            <span class="badge b-ok" style="font-size:10px">🟢 verified</span>
+          </div>
+          <div class="text-[11px]" style="color:var(--sub)">GB/T 11362-2021 表 5</div>
+        </div>
+
+        <div class="card2 p-3 mb-2">
+          <div class="flex items-center justify-between mb-1">
+            <span class="num text-[12px]">belt_length_series.yaml</span>
+            <span class="badge b-ok" style="font-size:10px">🟢 verified</span>
+          </div>
+          <div class="text-[11px]" style="color:var(--sub)">GB/T 11362-2021 表 6</div>
+        </div>
+
+        <div class="card2 p-3 mb-3">
+          <div class="flex items-center justify-between mb-1">
+            <span class="num text-[12px]">rated_power.yaml</span>
+            <span class="badge b-ok" style="font-size:10px">🟢 verified</span>
+          </div>
+          <div class="text-[11px]" style="color:var(--sub)">GB/T 11362-2021 表 7</div>
+        </div>
+
+        <div class="text-[11px] p-3 rounded-lg" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);color:#fbbf24">
+          ⚠ 当前离线：AI 检索不可用，以上为本地缓存数据。计算与校核脚本正常运行。
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 移动端底部导航 -->
+  <nav class="mobile-nav hidden fixed bottom-0 left-0 right-0 z-40 border-t justify-around py-2"
+       style="display:none;background:rgba(18,27,36,.96);backdrop-filter:blur(10px);border-color:var(--line)">
+    <button class="flex flex-col items-center gap-0.5 text-[10px]" style="color:#93c5fd" onclick="go('home')">⌂<span>首页</span></button>
+    <button class="flex flex-col items-center gap-0.5 text-[10px]" style="color:var(--sub)" onclick="setStep(2)">≡<span>步骤</span></button>
+    <button class="flex flex-col items-center gap-0.5 text-[10px]" style="color:var(--sub)" onclick="switchTab('ai')">💬<span>AI</span></button>
+    <button class="flex flex-col items-center gap-0.5 text-[10px]" style="color:var(--sub)" onclick="go('knowledge')">▤<span>知识库</span></button>
+    <button class="flex flex-col items-center gap-0.5 text-[10px]" style="color:var(--sub)" onclick="go('settings')">⚙<span>设置</span></button>
+  </nav>
+</section>
+
+<!-- ─────── 页面：知识库 ─────── -->
+<section id="p-knowledge" class="page">
+  <div class="flex items-center justify-between mb-4">
+    <div class="text-[15px] font-semibold">知识库 / 缓存管理</div>
+    <div class="flex gap-2">
+      <button class="btn">导入 YAML</button>
+      <button class="btn">生成待核验报告</button>
+    </div>
+  </div>
+
+  <div class="card p-4 mb-4 flex flex-wrap gap-3 items-center">
+    <select class="inp" style="width:auto"><option>全部物料</option><option>同步带</option><option>润滑油</option></select>
+    <select class="inp" style="width:auto"><option>全部状态</option><option>🟢 verified</option><option>🟡 single_source</option></select>
+    <input class="inp flex-1 min-w-[200px]" placeholder="搜索数据表 / 信源…">
+  </div>
+
+  <div class="card overflow-hidden">
+    <div class="overflow-x-auto scroll">
+      <table class="tbl">
+        <thead><tr><th>物料</th><th>数据表</th><th>来源</th><th>状态</th><th>最近核验</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr><td>同步带</td><td class="num">condition_factors.yaml</td><td>GB/T 11362-2021 表 3</td><td><span class="badge b-ok">🟢 verified</span></td><td class="num">2026-09-20</td><td><button class="btn text-[11px] py-1 px-2">查看</button></td></tr>
+          <tr><td>同步带</td><td class="num">belt_pitch.yaml</td><td>GB/T 11362-2021 表 1</td><td><span class="badge b-warn">🟡 single</span></td><td class="num">2026-09-20</td><td><button class="btn text-[11px] py-1 px-2">核验</button></td></tr>
+          <tr><td>同步带</td><td class="num">pulley_teeth_min.yaml</td><td>GB/T 11362-2021 表 5</td><td><span class="badge b-ok">🟢 verified</span></td><td class="num">2026-09-20</td><td><button class="btn text-[11px] py-1 px-2">查看</button></td></tr>
+          <tr><td>同步带</td><td class="num">belt_length_series.yaml</td><td>GB/T 11362-2021 表 6</td><td><span class="badge b-ok">🟢 verified</span></td><td class="num">2026-09-20</td><td><button class="btn text-[11px] py-1 px-2">查看</button></td></tr>
+          <tr><td>同步带</td><td class="num">belt_width_series.yaml</td><td>GB/T 11362-2021 表 2</td><td><span class="badge b-ok">🟢 verified</span></td><td class="num">2026-09-20</td><td><button class="btn text-[11px] py-1 px-2">查看</button></td></tr>
+          <tr><td>同步带</td><td class="num">rated_power.yaml</td><td>GB/T 11362-2021 表 7</td><td><span class="badge b-ok">🟢 verified</span></td><td class="num">2026-09-20</td><td><button class="btn text-[11px] py-1 px-2">查看</button></td></tr>
+          <tr><td>润滑油</td><td class="num">chain_viscosity.yaml</td><td>GB/T 7631.1</td><td><span class="badge b-warn">🟡 single</span></td><td class="num">2026-09-18</td><td><button class="btn text-[11px] py-1 px-2">核验</button></td></tr>
+          <tr><td>润滑油</td><td class="num">open_gear_viscosity.yaml</td><td>成大先《机械设计手册》</td><td><span class="badge b-warn">🟡 single</span></td><td class="num">2026-09-18</td><td><button class="btn text-[11px] py-1 px-2">核验</button></td></tr>
+          <tr><td>润滑油</td><td class="num">rail_viscosity.yaml</td><td>GB/T 7631.1</td><td><span class="badge b-warn">🟡 single</span></td><td class="num">2026-09-18</td><td><button class="btn text-[11px] py-1 px-2">核验</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ─────── 页面：设置 ─────── -->
+<section id="p-settings" class="page">
+  <div class="text-[15px] font-semibold mb-4">设置</div>
+
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="card p-5">
+      <div class="text-[13px] font-medium mb-3">运行模式</div>
+      <div class="space-y-2 text-[13px]">
+        <label class="flex items-center gap-2"><input type="radio" name="mode" checked> 自动（有网在线，无网降级）</label>
+        <label class="flex items-center gap-2"><input type="radio" name="mode"> 强制在线</label>
+        <label class="flex items-center gap-2"><input type="radio" name="mode"> 强制离线</label>
+      </div>
+    </div>
+
+    <div class="card p-5">
+      <div class="text-[13px] font-medium mb-3">DeepSeek API</div>
+      <div class="space-y-3">
+        <div>
+          <label class="text-[12px] block mb-1" style="color:var(--sub)">API Key</label>
+          <input class="inp num" type="password" value="sk-••••••••••••••••••••">
+        </div>
+        <div>
+          <label class="text-[12px] block mb-1" style="color:var(--sub)">主模型</label>
+          <select class="inp"><option>deepseek-flash</option><option>deepseek-v4-pro</option></select>
+        </div>
+        <div>
+          <label class="text-[12px] block mb-1" style="color:var(--sub)">备用模型（复杂推理）</label>
+          <select class="inp"><option>deepseek-v4-pro</option><option>deepseek-flash</option></select>
+        </div>
+        <label class="flex items-center gap-2 text-[13px]"><input type="checkbox" checked> 启用缓存命中优化</label>
+        <button class="btn w-full">测试连接</button>
+      </div>
+    </div>
+
+    <div class="card p-5">
+      <div class="text-[13px] font-medium mb-3">脚本与缓存</div>
+      <div class="space-y-3">
+        <div>
+          <label class="text-[12px] block mb-1" style="color:var(--sub)">脚本目录</label>
+          <input class="inp num" value="./scripts/">
+        </div>
+        <div>
+          <label class="text-[12px] block mb-1" style="color:var(--sub)">Python 解释器</label>
+          <input class="inp num" value="./.venv/Scripts/python.exe">
+        </div>
+        <div>
+          <label class="text-[12px] block mb-1" style="color:var(--sub)">缓存目录</label>
+          <input class="inp num" value="./knowledge/cache/">
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-5">
+      <div class="text-[13px] font-medium mb-3">外观与单位</div>
+      <div class="space-y-3 text-[13px]">
+        <div class="flex gap-4">
+          <label class="flex items-center gap-2"><input type="radio" name="theme" checked> 深色</label>
+          <label class="flex items-center gap-2"><input type="radio" name="theme"> 浅色</label>
+          <label class="flex items-center gap-2"><input type="radio" name="theme"> 跟随系统</label>
+        </div>
+        <div class="flex gap-4">
+          <label class="flex items-center gap-2"><input type="radio" name="unit" checked> 公制</label>
+          <label class="flex items-center gap-2"><input type="radio" name="unit"> 英制</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* ── 模式切换 ── */
+function setMode(m){
+  ['on','off','auto'].forEach(k=>{
+    const el=document.getElementById('m-'+k);
+    el.style.background = (k===m) ? 'var(--brand)' : 'transparent';
+    el.style.color = (k===m) ? '#fff' : 'var(--sub)';
+  });
+  const badge=document.getElementById('net-badge');
+  if(m==='offline'){
+    badge.className='badge b-warn';
+    badge.innerHTML='<span class="conf" style="background:#fbbf24"></span>离线';
+    switchTab('src');
+  }else{
+    badge.className='badge b-ok';
+    badge.innerHTML='<span class="conf" style="background:#34d399"></span>'+(m==='auto'?'自动·已连接':'已连接');
+    if(m==='online') switchTab('ai');
+  }
+}
+
+/* ── 页面切换 ── */
+function go(p){
+  document.querySelectorAll('.page').forEach(e=>e.classList.remove('on'));
+  const map={home:'p-home',work:'p-work',knowledge:'p-knowledge',settings:'p-settings'};
+  document.getElementById(map[p]).classList.add('on');
+  document.querySelectorAll('[data-nav]').forEach(b=>{
+    const on = b.dataset.nav===p;
+    b.style.borderColor = on ? 'var(--brand)' : 'var(--line)';
+    b.style.color = on ? '#93c5fd' : 'var(--txt)';
+  });
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ── 步骤切换（工作台内） ── */
+function setStep(n){
+  // 若不在工作台页，先切过去
+  if(!document.getElementById('p-work').classList.contains('on')) go('work');
+
+  document.querySelectorAll('#p-work .step').forEach((el,i)=>{
+    el.classList.remove('on','done');
+    if(i<n) el.classList.add('done'), el.querySelector('.dot').textContent='✓';
+    else if(i===n) el.classList.add('on'), el.querySelector('.dot').textContent=i;
+    else el.querySelector('.dot').textContent=i;
+  });
+  const ids={2:'s2',3:'s3',4:'s4',5:'s5',6:'s5'};
+  document.querySelectorAll('.stepbody').forEach(e=>e.style.display='none');
+  const target=document.getElementById(ids[n]);
+  if(target) target.style.display='block';
+}
+
+/* ── 右侧面板切换 ── */
+function switchTab(t){
+  const ai=document.getElementById('tab-ai'), src=document.getElementById('tab-src');
+  const pai=document.getElementById('panel-ai'), psrc=document.getElementById('panel-src');
+  if(t==='ai'){
+    ai.classList.add('on'); src.classList.remove('on');
+    pai.style.display='flex'; psrc.style.display='none';
+  }else{
+    src.classList.add('on'); ai.classList.remove('on');
+    psrc.style.display='block'; pai.style.display='none';
+  }
+}
+
+/* ── AI 填充模拟 ── */
+function aiFill(k){
+  if(k==='all'||k==='z1'){
+    const inp=document.querySelector('#s2 input.err');
+    if(inp){ inp.value='18'; inp.classList.remove('err'); }
+    const inputs=document.querySelectorAll('#s2 input.err');
+    inputs.forEach((el,i)=>{ el.value=(i===0?'18':'2.0'); el.classList.remove('err'); });
+    alert('已按 GB/T 11362-2021 推荐值填充：z₁=18，i=2.0');
+  }else if(k==='K_A'){
+    alert('工况系数 K_A=1.2（载荷平稳 + 电动机驱动，GB/T 11362-2021 表 3）');
+  }
+}
+
+/* 初始化 */
+setMode('online');
+go('home');
+</script>
+</body>
+</html>

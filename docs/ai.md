@@ -1,0 +1,244 @@
+# AI 层
+
+## 商业与信任模型
+
+**本软件不自带任何 API key，不自建中转服务，不代付任何费用。**
+
+AI 由用户绑定自己的账号提供，请求由本机直连服务商，
+工况参数不经过任何第三方服务器。
+
+这条约束带来三个实打实的收益：
+
+- 边际 AI 成本为零，商业模型变成纯软件授权
+- 数据链路更短——对"设计部门数据不外流"的工业客户是硬卖点
+- **离线确定性内核成为默认形态**，AI 是可选增强
+
+最后一条最重要：**未绑定账号时软件必须完整可用**。
+这不是降级方案，这是默认状态。有一条专门的验收测试守它
+（`test_full_selection_works_without_any_account`）。
+
+## 支持的服务商
+
+| 服务商 | base_url | 模型列表 | 余额查询 | 厂商特有字段 |
+|---|---|---|---|---|
+| **DeepSeek 深度求索** | `https://api.deepseek.com` | ✅ `GET /models` | ✅ `/user/balance` | —— |
+| **火山方舟（豆包）** | `https://ark.cn-beijing.volces.com/api/v3` | ❌ 文档未提 | ❌ | `thinking: {type: disabled}` |
+| **阿里百炼（千问）** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | ❌ 文档未提 | ❌ | `enable_thinking: false` |
+| **OpenAI（ChatGPT）** | `https://api.openai.com/v1` | ✅ `GET /v1/models` | ❌ 早已下线 | —— |
+| 其它 OpenAI 兼容服务 | 自填 | 探测 | ❌ | 无 |
+
+差异全部登记在 `server/ai/providers.py`，`client.Provider` 只管按表行事。
+
+### 可以同时绑定多家
+
+每家一份凭据（系统凭据库里各占一个 profile），其中一家生效，
+设置页一键切换（`POST /api/account/activate`）。
+
+**这不是为了花哨**：一家余额用完时能立刻切到另一家继续干活，
+比"解绑再重新绑定"实用得多——解绑会把 key 从凭据库删掉，
+用户还得回控制台重新复制一遍。**切换不动任何凭据。**
+
+老版本的 `account.json` 只存一个绑定，升级时自动迁移进新结构并保持生效——
+**不该因为软件升级而需要重新绑定**（`test_v1_single_binding_file_is_migrated`）。
+
+### 关闭思考模式是默认行为
+
+方舟与百炼的模型默认会"深度思考"。本软件的三个 AI 任务都要**结构化输出**，
+思维链既不需要、又要多花钱、还可能破坏 JSON。所以两家都默认关掉——
+两家的关法还不一样，各按各的文档来。
+
+## 绑定流程
+
+四家都只提供 API Key + Bearer 认证，
+**没有面向第三方应用的 OAuth 授权登录**——所以不存在真正的"跳转登录"。
+
+做成引导式绑定（`components/BindDialog.tsx`）：
+
+1. **选服务商** —— 选中即显示这家的坑（模型 id 格式、地域绑定、网络可达性…）
+2. 说明费用归属（"计入你自己的账号，软件不经手"）
+3. 一键打开**该服务商**的控制台
+4. 用户创建 key 并粘回（界面上写明"key 只显示一次"）
+5. 验证
+
+### 验证花不花钱，必须说在前面
+
+这是整个多服务商改造里最要紧的一条诚实义务：
+
+| 有没有模型列表接口 | 怎么验证 | 代价 |
+|---|---|---|
+| 有（DeepSeek / OpenAI） | `GET /models` | **不消耗 token**，顺带拿到真实可用的模型清单 |
+| 没有（方舟 / 百炼） | 一次 `max_tokens=1` 的最小对话探针 | **消耗几个 token，计入用户账号** |
+
+第二种情况下，绑定对话框在**点按钮之前**就写明会花钱，
+绑定完成后再如实报出具体消耗了多少（`ValidationResult.cost_hint`）。
+
+**悄悄花掉用户的钱，哪怕只有几分，也是这个产品不该做的事。**
+
+### 能力是探测出来的，不是声明死的
+
+方舟与百炼的官方文档都没提模型列表接口。但代码**不把"它们不支持"写死**——
+`validate()` 真的去请求一次 `/models`，收到 404/405 才退回对话探针。
+
+理由很简单：这四家的接口都在变，**写死的断言迟早会过期**，
+而探测出来的结论永远是当下的。`spec.may_list_models` 只决定要不要先试，
+不决定结论。
+
+## 凭据处理
+
+存 OS 凭据库（Windows Credential Manager / Keychain / Secret Service），
+经由 `keyring`。**不落明文配置文件、不入 SQLite、不随项目导出。**
+
+- 每家服务商各占一个 profile，互不覆盖
+- 后端只在内存中短暂持有
+- 任何响应、日志、错误信息一律走 `credentials.mask()` 脱敏
+- 提供解绑（可指定某一家），一键清除
+
+有一条测试遍历整个数据目录的每个文件，断言真实 key 的明文一个字节都不出现
+（`test_bound_key_lives_only_in_the_credential_store`）。
+
+没有 `keyring` 时绑定功能直接禁用并说明原因——
+把 key 写成明文文件不是可接受的替代方案。
+
+## 错误信息要指对地方
+
+接了四家之后，"去充值"这句话必须说清是**哪一家**。
+
+早先 `_friendly()` 把文案写死成 "DeepSeek 账号"。余额不足的其实是百炼时，
+它会把用户支到一个根本没欠费的平台去。现在错误信息一律带上服务商名字，
+有一条参数化测试守着（`test_errors_name_the_provider_that_actually_failed`）。
+
+`404` 的措辞也单独调过：base_url 或模型名写错时报 404，
+说成"网络不可达"会让人去查防火墙，而真正该改的是设置页里的两个输入框。
+
+## 已核实的接口事实
+
+对照**官方文档**核实过（2026-09），不是凭记忆写的：
+
+**DeepSeek**
+
+| 项 | 值 |
+|---|---|
+| base_url | `https://api.deepseek.com` |
+| 模型清单 | `GET /models` → `{object, data:[{id, object, owned_by}]}` |
+| 账户余额 | `GET /user/balance` → `{is_available, balance_infos:[...]}` |
+
+**火山方舟（豆包）** —— 出处：官方「兼容 OpenAI SDK」文档（更新于 2026.06.23）
+
+| 项 | 值 |
+|---|---|
+| base_url | `https://ark.cn-beijing.volces.com/api/v3` |
+| 模型 id | 带日期后缀，如 `doubao-seed-2-1-pro-260628`。**必须从控制台复制** |
+| 关闭思考 | `extra_body={"thinking": {"type": "disabled"}}`，即请求体顶层的 `thinking` |
+| 注意 | 该文档只演示了 chat.completions，并明确说向量化不支持 OpenAI API |
+
+**阿里百炼（千问）** —— 出处：官方「OpenAI兼容-Chat」文档（更新于 2026-09-22）
+
+| 项 | 值 |
+|---|---|
+| base_url | 官方推业务空间专属域名，但写明**「现有域名仍可正常使用」**，故默认用 `https://dashscope.aliyuncs.com/compatible-mode/v1`（不必去找业务空间 ID） |
+| 关闭思考 | `extra_body={"enable_thinking": false}`。qwen3 是混合思考模型，**非流式调用必须关**，否则直接报错 |
+| 注意 | **API Key 按地域绑定**，key 与域名地域对不上会报 401 |
+
+**OpenAI**
+
+| 项 | 值 |
+|---|---|
+| base_url | `https://api.openai.com/v1` |
+| 缓存命中 | 在 `usage.prompt_tokens_details.cached_tokens`，不是 DeepSeek 的 `prompt_cache_hit_tokens` |
+| 注意 | 国内网络通常直连不到，**本软件不内置任何代理** |
+
+**四家共同**：`Authorization: Bearer <key>`；
+`POST /chat/completions` 支持 `response_format: {"type":"json_object"}`。
+
+## 三个窄接口
+
+每个都有类型化契约，**全部不碰数值计算**。
+
+| 接口 | 输入 → 输出 | 未绑定 / 离线 |
+|---|---|---|
+| `parse_intent` | 自然语言 → `{material, values}` | 关键词/正则匹配 |
+| `suggest_params` | 输入定义 + 已知值 → `{param: {value, rationale}}` | 读规格的 `typical` |
+| `explain` | **已算好的** StepTrace → 白话文本 | 409 |
+
+### parse_intent 的离线兜底
+
+做得很保守：只认物料名与带单位的数值（`5.5 kW` / `1450 r/min` / `中心距 400`）。
+**宁可少认，也不要认错**——认不出来就让用户自己选物料，
+而不是猜一个最像的。
+
+实测能从"帮我选一根同步带，电机功率 5.5 kW，转速 1450 r/min，中心距 400 mm"
+正确提取出物料 + 三个参数。
+
+### suggest_params 的校验闸门 ★
+
+这是整个 AI 层最重要的一处设计：
+
+```python
+for pid, item in raw.items():
+    idef = by_id.get(pid)
+    if idef is None:
+        rejected[pid] = "该参数不在待建议清单里，已丢弃"
+        continue
+    value = item.get("value")
+    try:
+        _coerce(idef, value, spec, know)     # ← 与用户手输完全同一个函数
+    except Exception as exc:
+        rejected[pid] = f"建议值 {value!r} 没通过参数校验：{exc}"
+        continue
+    ok[pid] = {...}
+```
+
+**调用方不可能从这里拿到一个绕过校验的数。** 这是结构性保证。
+
+而且建议**不会自动生效**：返回的是 suggestion，写不写进参数由人决定，
+写进去之后还要按「开始计算」才会参与运算。
+
+### explain 没有降级方案
+
+没有 AI 就没有白话解释。返回 409，并说明
+"计算、校核、出表、采购链接不受影响，照常可用"。
+
+提示词里明确禁止它重算或质疑数值：结果已由确定性引擎算出，
+觉得可疑只能在末尾提示"建议人工复核"，不许给出自己的数。
+
+## 用量与上限
+
+花的是用户自己的钱，必须看得见、管得住。
+
+- 每次调用后显示真实 token 数（含缓存命中）
+- 单次 token 上限（默认 1200）+ 每日调用次数上限（默认 200）
+- **超限直接拒绝**（429），不静默继续
+- 超了 AI 上限，选型照样能做完——这才叫"AI 是可选增强"
+
+### 刻意不做费用换算
+
+只显示真的东西：本次调用的实际 token 数，
+以及（服务商提供时）真实余额。**四家里只有 DeepSeek 有余额查询接口**，
+其余三家会明说"这家没有这个接口，请到控制台看"——
+而不是显示一个"查询失败"让人以为是软件出了问题。
+
+**不做"预估费用"**：单价会变，把价目表硬编码进来早晚会给出一个过期的数字。
+这个产品的立身之本就是不给来路不明的数字，
+在自己的用量页上摆一个可能过期的估算，说不过去。
+
+设置页里写明了这个取舍。
+
+## 已知的验证边界
+
+AI 路径的测试用的是**假 provider** 与 httpx MockTransport，不是真实往返。
+
+- 已端到端实测：离线路径、边界逻辑、凭据处理、超限拒绝、建议值拦截
+- 只验证到契约层：真实 API 往返（对照文档核实端点、字段、参数）
+
+第一次用真 key 绑定时，最可能出问题的是模型返回的 JSON 结构与解析假设不符。
+真出问题时 `Completion.as_json()` 会明确报「模型没有返回合法的 JSON」，
+不会静默吞掉。
+
+## 一处待补
+
+同步带工作流的规格里**没有 `typical` 值**，所以离线 `suggest` 给不出建议，
+只会如实说"规格里没写明推荐值，需要你按实际工况填写"。
+
+这是有意的：原动机类型和工作机类型直接决定 K_A，猜错会一路错到底。
+要让离线建议有用，**需要照手册给规格补 `typical`**——
+那是有依据的推荐值，不是我们编的。

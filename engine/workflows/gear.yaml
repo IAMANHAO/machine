@@ -1,0 +1,289 @@
+## 渐开线圆柱齿轮 几何计算与接触应力核算 —— 可执行工作流规格
+#
+# 这是给 mds.runner 执行的契约；workflows/gear.md 保留为人读文档与评审物。
+# 两者若有出入，以本文件为准，并在 notes 里说明原因。
+
+schema_version: 1
+material: gear
+name_zh: 渐开线圆柱齿轮（几何计算与接触应力核算）
+standard: GB/T 1356 · GB/T 3480
+workflow_doc: workflows/gear.md
+
+notes:
+  - "**这不是完整的 GB/T 3480 承载能力计算。**
+     标准里 ZH（节点区域系数）、YFa / YSa（齿形与应力修正系数）、σHlim（材料疲劳极限）
+     都是**线图**，读不出可核对的数值。所以本工作流的边界是：
+     几何计算全做（全是定义式）；接触应力的公式是确定的，但 ZH 与许用接触应力
+     由**用户按线图查好后填入**；弯曲强度校核**完全不做**。"
+  - "**模数不做圆整。** GB/T 1357 的模数系列检索不到可核对的数值，
+     所以模数是用户输入。请自行从标准系列里取值。"
+  - "使用系数 KA、动载系数 KV、齿向载荷分布系数 KHβ、齿间载荷分配系数 KHα
+     **合并为一个用户输入的总系数 K**——四张表一张都没有，分开填只是把同一个
+     不确定性拆成四份，不会更准。"
+  - "重合度只在**标准齿轮（x1 = x2 = 0）**时计算。变位齿轮的重合度要先解啮合角 α'，
+     那是个超越方程，v1 未实现。"
+  - "只覆盖**外啮合直齿与斜齿圆柱齿轮**。内啮合、锥齿轮、蜗轮蜗杆、
+     人字齿均不适用。弹性系数只有钢-钢配对。"
+
+inputs:
+  - id: m_n
+    name_zh: 法向模数
+    unit: mm
+    required: true
+    default: 2
+    domain: {min: 0.1, max: 50}
+    hint: 从 GB/T 1357 的模数系列里取。引擎不做圆整——那张系列表没有可核对的数值
+
+  - id: z1
+    name_zh: 小齿轮齿数
+    required: true
+    default: 20
+    domain: {min: 6, max: 400}
+
+  - id: z2
+    name_zh: 大齿轮齿数
+    required: true
+    default: 60
+    domain: {min: 6, max: 2000}
+
+  - id: beta
+    name_zh: 螺旋角
+    unit: 度
+    required: true
+    default: 0
+    domain: {min: 0, max: 45}
+    hint: 直齿填 0。斜齿常用 8°~20°
+
+  - id: x1
+    name_zh: 小齿轮变位系数
+    required: true
+    default: 0
+    domain: {min: -1, max: 1}
+
+  - id: x2
+    name_zh: 大齿轮变位系数
+    required: true
+    default: 0
+    domain: {min: -1, max: 1}
+
+  - id: psi_d
+    name_zh: 齿宽系数 ψd
+    required: true
+    default: 1.0
+    domain: {min: 0.1, max: 2.0}
+    hint: b = ψd × d1。对称布置常用 0.8~1.4，悬臂布置取小值
+
+  - id: T1
+    name_zh: 小齿轮转矩
+    unit: N·m
+    required: true
+    domain: {min: 0.01, max: 1000000}
+
+  - id: material_pair
+    name_zh: 配对材料
+    type: enum
+    required: true
+    default: steel_steel
+    options_from: {table: gear_basic, path: elastic_factor, label: name_zh}
+
+  - id: ZH
+    name_zh: 节点区域系数 ZH
+    required: true
+    default: 2.5
+    domain: {min: 1.5, max: 3.5}
+    hint: GB/T 3480 图 3 查取。标准直齿（x1+x2=0、β=0）约 2.5
+
+  - id: K
+    name_zh: 载荷系数 K（KA·KV·KHβ·KHα 之积）
+    required: true
+    default: 1.5
+    domain: {min: 1.0, max: 5.0}
+    hint: 四个分系数的表都没有，合并成一个由你填。一般机械 1.3~2.0
+
+  - id: sigma_HP
+    name_zh: 许用接触应力
+    unit: MPa
+    required: true
+    domain: {min: 100, max: 2000}
+    hint: 由 σHlim 除以安全系数并计入寿命、润滑等修正后得出，按 GB/T 3480 线图查
+
+result:
+  - {label: 传动比 u, value: "{u}"}
+  - {label: 分度圆直径 d1 / d2, value: "{d1} / {d2}", unit: mm}
+  - {label: 中心距 a, value: "{a}", unit: mm}
+  - {label: 齿顶圆直径 da1 / da2, value: "{da1} / {da2}", unit: mm}
+  - {label: 齿根圆直径 df1 / df2, value: "{df1} / {df2}", unit: mm}
+  - {label: 齿宽 b, value: "{b}", unit: mm}
+  - {label: 端面重合度 εα, value: "{eps_alpha}"}
+  - {label: 弹性系数 ZE, value: "{ZE}"}
+  - {label: 计算接触应力 σH, value: "{sigma_H}", unit: MPa}
+  - {label: 许用接触应力, value: "{sigma_HP}", unit: MPa}
+  - {label: 采购关键字, value: "齿轮 模数{m_n} 齿数{z1} 压力角20度"}
+
+probe:
+  base:
+    m_n: 2
+    psi_d: 1.0
+    T1: 100
+    material_pair: steel_steel
+    ZH: 2.5
+    K: 1.5
+    sigma_HP: 600
+    x1: 0
+    x2: 0
+  cases:
+    - {name: 直齿·标准, z1: 20, z2: 60, beta: 0}
+    - {name: 斜齿·15度, z1: 20, z2: 60, beta: 15}
+    - {name: 直齿·小齿数, z1: 17, z2: 34, beta: 0}
+    - {name: 直齿·大传动比, z1: 18, z2: 108, beta: 0}
+    - {name: 变位齿轮（重合度不算）, z1: 20, z2: 60, beta: 0, x1: 0.3, x2: -0.3}
+    - {name: 重载·应力超限, z1: 20, z2: 60, beta: 0, T1: 2000}
+
+procure:
+  material_template: gear
+  channels: [taobao, 1688]
+  fields:
+    kind: 圆柱齿轮
+    spec: "模数{m_n} 齿数{z1}"
+
+steps:
+  # ---------- 第 1 步：基本齿廓参数 ----------
+  - id: ha_star
+    name_zh: 齿顶高系数
+    kind: table_lookup
+    table: gear_basic
+    key: "basic_rack.ha_star"
+    note: "GB/T 1356 标准基本齿条齿廓的定义值"
+    outputs: [ha_star]
+
+  - id: c_star
+    name_zh: 顶隙系数
+    kind: table_lookup
+    table: gear_basic
+    key: "basic_rack.c_star"
+    outputs: [c_star]
+
+  - id: alpha_n
+    name_zh: 法向压力角
+    kind: table_lookup
+    table: gear_basic
+    key: "basic_rack.alpha_n"
+    unit: 度
+    outputs: [alpha_n]
+
+  # ---------- 第 2 步：几何（全是定义式）----------
+  - id: u
+    name_zh: 齿数比
+    kind: formula
+    expr: "z2 / z1"
+    outputs: [u]
+
+  - id: d1
+    name_zh: 小齿轮分度圆直径
+    kind: formula
+    expr: "m_n * z1 / cos(radians(beta))"
+    unit: mm
+    note: "斜齿轮的分度圆按端面模数算，mt = mn / cos β"
+    source: {ref: "d = mn·z / cos β" }
+    outputs: [d1]
+
+  - id: d2
+    name_zh: 大齿轮分度圆直径
+    kind: formula
+    expr: "m_n * z2 / cos(radians(beta))"
+    unit: mm
+    outputs: [d2]
+
+  - id: a
+    name_zh: 中心距
+    kind: formula
+    expr: "m_n * (z1 + z2) / (2 * cos(radians(beta)))"
+    unit: mm
+    note: "标准中心距。变位后实际中心距要由啮合角 α' 定，本工作流未实现"
+    outputs: [a]
+
+  - id: da1
+    name_zh: 小齿轮齿顶圆直径
+    kind: formula
+    expr: "d1 + 2 * m_n * (ha_star + x1)"
+    unit: mm
+    source: {ref: "da = d + 2mn(ha* + x)" }
+    outputs: [da1]
+
+  - id: da2
+    name_zh: 大齿轮齿顶圆直径
+    kind: formula
+    expr: "d2 + 2 * m_n * (ha_star + x2)"
+    unit: mm
+    outputs: [da2]
+
+  - id: df1
+    name_zh: 小齿轮齿根圆直径
+    kind: formula
+    expr: "d1 - 2 * m_n * (ha_star + c_star - x1)"
+    unit: mm
+    source: {ref: "df = d − 2mn(ha* + c* − x)" }
+    outputs: [df1]
+
+  - id: df2
+    name_zh: 大齿轮齿根圆直径
+    kind: formula
+    expr: "d2 - 2 * m_n * (ha_star + c_star - x2)"
+    unit: mm
+    outputs: [df2]
+
+  - id: b
+    name_zh: 齿宽
+    kind: formula
+    expr: "psi_d * d1"
+    unit: mm
+    note: "齿宽按小齿轮分度圆定。实际大齿轮常比小齿轮窄 5~10mm 以补偿装配误差"
+    outputs: [b]
+
+  # ---------- 第 3 步：重合度（仅标准齿轮）----------
+  - id: eps_alpha
+    name_zh: 端面重合度
+    kind: formula
+    when: "x1 == 0 and x2 == 0"
+    expr: "(z1 * (tan(acos(d1 * cos(radians(alpha_n)) / da1)) - tan(radians(alpha_n))) + z2 * (tan(acos(d2 * cos(radians(alpha_n)) / da2)) - tan(radians(alpha_n)))) / (2 * pi)"
+    note: "只在标准齿轮（x1=x2=0）时计算。变位齿轮要先解啮合角 α'，那是个超越方程，未实现"
+    source: {ref: "εα = [z1(tan αa1 − tan α) + z2(tan αa2 − tan α)] / 2π" }
+    outputs: [eps_alpha]
+
+  - id: chk_eps
+    name_zh: 重合度校核
+    kind: check
+    when: "x1 == 0 and x2 == 0"
+    value: eps_alpha
+    op: ">="
+    limit: "1.2"
+    on_fail: 重合度不足，传动会不连续、噪声大；增大齿数、减小压力角或改用斜齿
+    source: {ref: "一般机械要求 εα ≥ 1.2" }
+
+  # ---------- 第 4 步：接触应力 ----------
+  - id: ZE
+    name_zh: 弹性系数
+    kind: table_lookup
+    table: gear_basic
+    key: "elastic_factor.{material_pair}.ZE"
+    note: "只录了钢-钢配对，其它配对会如实报缺口"
+    outputs: [ZE]
+
+  - id: sigma_H
+    name_zh: 计算接触应力
+    kind: formula
+    expr: "ZE * ZH * (2 * K * T1 * 1000 / (b * d1 ** 2) * (u + 1) / u) ** 0.5"
+    unit: MPa
+    note: "ZH 与许用应力都由用户按 GB/T 3480 线图查好后填入——线图读不出可核对的数值"
+    source: {ref: "σH = ZE·ZH·√(2KT1/(b·d1²) · (u+1)/u)" }
+    outputs: [sigma_H]
+
+  - id: chk_contact
+    name_zh: 接触强度校核
+    kind: check
+    value: sigma_H
+    op: "<="
+    limit: sigma_HP
+    unit: MPa
+    on_fail: 增大模数或齿宽、提高齿面硬度、增大中心距，或改用斜齿以提高重合度
+    source: {ref: "σH ≤ σHP，GB/T 3480" }

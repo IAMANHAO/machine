@@ -1,0 +1,299 @@
+schema_version: 1
+data_source: "内部整理 —— 电商平台搜索 URL 结构 + 各物料采购关键词构成规则"
+last_verified: "2026-09-21"
+verification_status: "self_defined"
+_todo:
+  - "平台搜索 URL 结构若变更，需同步更新 channels 段"
+  - "关键词模板随物料品类扩充持续补充"
+  - "1688 / 京东 的 URL 未做可达性验证（需登录态），首次使用时注意核对"
+_verified_note: "2026-09-21 实测：淘宝 s.taobao.com/search?q= 正常返回搜索页；天猫旧地址 list.tmall.com 已 302 跳转，故改用 s.taobao.com/search?q=&tab=mall"
+
+# ---------------------------------------------------------------------------
+# 采购渠道 —— 每个渠道给出搜索页 URL 模板，{kw} 为 URL 编码后的关键词占位符
+# ---------------------------------------------------------------------------
+channels:
+  taobao:
+    display_name: "淘宝"
+    url_template: "https://s.taobao.com/search?q={kw}"
+    priority: 1
+    default: true
+    note: "商品最全，工业小件与零售包装首选；结果为搜索页，价格随行情浮动"
+  tmall:
+    display_name: "天猫"
+    url_template: "https://s.taobao.com/search?q={kw}&tab=mall"
+    priority: 2
+    default: true
+    note: "天猫 tab 搜索，品牌旗舰店集中、正品率更高；旧地址 list.tmall.com 会 302 跳到这里，直接用本地址更快"
+  alibaba1688:
+    display_name: "1688"
+    url_template: "https://s.1688.com/selloffer/offer_search.htm?keywords={kw}"
+    priority: 3
+    default: false
+    note: "批发与工厂直供，单价低；注意起订量、最小包装、是否含税"
+  jd:
+    display_name: "京东"
+    url_template: "https://search.jd.com/Search?keyword={kw}&enc=utf-8"
+    priority: 4
+    default: false
+    note: "自营工业品到货快，可作价格锚点比价"
+
+# ---------------------------------------------------------------------------
+# 默认字段顺序（物料未单独定义 keyword_order 时使用）
+# ---------------------------------------------------------------------------
+defaults:
+  keyword_order:
+    - brand
+    - product
+    - model
+    - spec
+    - kind
+    - grade
+    - pack
+  # 变体关键词时优先丢弃这些字段（避免筛得过细导致零结果）
+  variant_drop:
+    - pack
+    - grade
+  channels:
+    - taobao
+    - tmall
+
+# ---------------------------------------------------------------------------
+# 分物料关键词模板
+#   keyword_order : 关键词字段拼接顺序（缺值自动跳过）
+#   variant_drop  : 生成备选精简关键词时丢弃的字段
+#   field_hint    : 各字段填写建议
+#   examples      : 可直接套用的示例关键词
+# ---------------------------------------------------------------------------
+materials:
+  lubricant:
+    display_name: "润滑油 / 润滑脂"
+    keyword_order:
+      - brand
+      - product
+      - vg
+      - kind
+      - grade
+      - pack
+    variant_drop:
+      - pack
+      - grade
+    field_hint:
+      brand: "品牌中文名，如 美孚 / 壳牌 / 克鲁勃 / 长城"
+      product: "产品线名称，如 威达 Vactra / 特力 Tonna / ECOCUT"
+      vg: "黏度等级，如 68（脚本渲染为 VG68）"
+      kind: "油品类别，如 导轨油 / 链条油 / 工业齿轮油 / 开式齿轮脂 / 润滑脂"
+      grade: "补充等级，如 CLP 220 / NLGI 2 / NSF H1"
+      pack: "包装规格，如 18L / 200L / 16kg / 400g"
+    examples:
+      - "美孚 威达 Vactra 68号 导轨油 18L"
+      - "克鲁勃 GEM 1-68 N 导轨油 20L"
+      - "壳牌 万利得 Tonna S2 M68 导轨油 20L"
+    note: "工业油品务必带品牌 + 产品线，只写黏度会混入杂牌与不明来源分装"
+
+  synchronous_belt:
+    display_name: "同步带 / 同步带轮"
+    keyword_order:
+      - brand
+      - model
+      - spec
+      - kind
+      - pack
+    variant_drop:
+      - brand
+      - pack
+    field_hint:
+      brand: "品牌，如 盖茨 Gates / 三之星 / 优霓塔"
+      model: "带型代号，如 8M / 5M / XL / L / H"
+      spec: "关键尺寸，如 节线长 1200 / 齿数 60 / 带宽 20"
+      kind: "物料名，如 同步带 / 同步带轮 / 圆弧齿同步带"
+      pack: "包装或数量，如 1条 / 10条"
+    examples:
+      - "盖茨 Gates 8M 同步带 带宽20 节线长1200"
+      - "同步带轮 8M 60齿 孔25 键槽8"
+    note: "同步带必须给出带型 + 带宽 + 节线长三要素，缺一项卖家无法报价"
+
+  bearing:
+    display_name: "滚动轴承"
+    keyword_order:
+      - brand
+      - model
+      - spec
+      - grade
+      - kind
+      - pack
+    variant_drop:
+      - brand
+      - pack
+    field_alias:
+      seal: spec
+      precision: grade
+      series: model
+      type: kind
+    field_hint:
+      brand: "品牌，如 SKF / NSK / FAG / 哈轴 HRB / 洛轴 LYC"
+      model: "轴承代号，如 6205 / 30206 / NU206（不要加任何前缀）"
+      spec: "结构与密封代号，如 2RS / ZZ / 开式 / 2Z"
+      grade: "精度等级，如 P5 / P6 / P0（可省略，默认 P0）"
+      kind: "物料名，如 深沟球轴承 / 圆锥滚子轴承"
+      pack: "数量，如 1个 / 10个"
+    examples:
+      - "SKF 6205 2RS 深沟球轴承"
+      - "哈轴 6205 2RS P5 深沟球轴承"
+    note: "轴承型号本身就是代号，切勿给型号加前缀；国产替代可去掉品牌字段，用型号 + 密封代号 + 精度即可"
+
+  fastener:
+    display_name: "螺栓 / 螺母 / 垫圈"
+    keyword_order:
+      - kind
+      - spec
+      - grade
+      - material
+      - surface
+      - pack
+    variant_drop:
+      - pack
+      - surface
+    field_hint:
+      kind: "物料名，如 内六角螺栓 / 六角头螺栓 / 螺母 / 平垫"
+      spec: "规格，如 M8x30 / M12x50"
+      grade: "性能等级，如 8.8级 / 10.9级 / 12.9级 / A2-70"
+      material: "材料，如 碳钢 / 304不锈钢 / 316不锈钢"
+      surface: "表面处理，如 发黑 / 镀锌 / 达克罗"
+      pack: "包装，如 50个装 / 100个装"
+    examples:
+      - "304不锈钢 内六角螺栓 M8x30 全牙 50个"
+      - "12.9级 内六角螺钉 M10x40 发黑"
+    note: "螺栓必须写清 材质 + 强度等级 + 表面处理，否则易买错"
+
+  gear:
+    display_name: "齿轮 / 齿条"
+    keyword_order:
+      - kind
+      - model
+      - material
+      - spec
+      - grade
+    variant_drop:
+      - grade
+    field_prefix:
+      model: "模数"
+    field_hint:
+      kind: "物料名，如 直齿轮 / 斜齿轮 / 齿轮齿条"
+      model: "模数，填数字 2 会被渲染为 模数2；也可直接填 M2"
+      material: "材料，如 45钢 / 20CrMnTi / 尼龙 / 黄铜"
+      spec: "关键尺寸，如 30齿 / 内孔12"
+      grade: "精度或热处理，如 6级精度 / 齿面淬火"
+    examples:
+      - "45钢 直齿轮 模数2 30齿 内孔12"
+      - "齿轮齿条 模数1.5 1米"
+    note: "标准齿轮注明模数 + 齿数 + 内孔；非标件建议附图纸关键词"
+
+  coupling:
+    display_name: "联轴器"
+    keyword_order:
+      - kind
+      - model
+      - torque
+      - bore
+      - brand
+    variant_drop:
+      - brand
+    field_hint:
+      kind: "物料名，如 梅花联轴器 / 膜片联轴器 / 弹性柱销联轴器"
+      model: "型号，如 XL3 / LMD / JMII"
+      torque: "额定扭矩，如 50N.m"
+      bore: "孔径，如 内孔16 内孔20"
+      brand: "品牌，如 泊头 / R+W / KTR"
+    examples:
+      - "梅花联轴器 XL3 内孔16 内孔20"
+    note: "联轴器必须给两端孔径与键槽尺寸，否则装不上"
+
+  chain:
+    display_name: "链条 / 链轮"
+    keyword_order:
+      - kind
+      - model
+      - spec
+      - material
+      - brand
+    variant_drop:
+      - brand
+    field_hint:
+      kind: "物料名，如 滚子链 / 双排链 / 链轮"
+      model: "链号，如 08B / 10A / RS40 / 06B-2"
+      spec: "尺寸或节数，如 节距12.7 114节"
+      material: "材料，如 不锈钢 / 45钢"
+      brand: "品牌，如 东华 / 钻石 / Tsubaki"
+    examples:
+      - "滚子链 08B-1 节距12.7 114节"
+      - "链轮 08B 20齿 内孔20"
+    note: "链条按节数下单，节数由中心距算得；采购前先算好节数"
+
+  reducer:
+    display_name: "减速机 / 减速器"
+    keyword_order:
+      - brand
+      - model
+      - ratio
+      - power
+      - kind
+    variant_drop:
+      - brand
+    field_prefix:
+      ratio: "速比"
+    field_hint:
+      kind: "物料名，如 硬齿面减速机 / 蜗轮蜗杆减速机"
+      model: "型号，如 R87 / NMRV63 / SEW R97"
+      ratio: "速比，填数字 30 会被渲染为 速比30；也可直接填 1比30"
+      power: "功率，如 3kW"
+      brand: "品牌，如 SEW / 国茂 / 中大"
+    examples:
+      - "SEW 减速机 R87 速比30 3kW"
+    note: "减速机给型号 + 速比 + 电机功率即可询价"
+
+  seal:
+    display_name: "密封件 / O 形圈"
+    keyword_order:
+      - kind
+      - spec
+      - material
+      - standard
+      - pack
+    variant_drop:
+      - pack
+      - standard
+    field_hint:
+      kind: "物料名，如 O形圈 / 骨架油封 / 格莱圈"
+      spec: "规格，如 外径20x2.4 / 30x47x7"
+      material: "材料，如 NBR / FKM 氟胶 / 硅胶"
+      standard: "标准，如 GB/T 3452.1"
+      pack: "包装，如 50个装"
+    examples:
+      - "O形圈 外径20x2.4 NBR 丁腈橡胶 50个"
+      - "骨架油封 30x47x7 NBR"
+    note: "O 形圈规格要说明是内径还外径，不同卖家口径不同"
+
+  generic:
+    display_name: "通用（未定义模板时的兜底）"
+    keyword_order:
+      - brand
+      - product
+      - model
+      - spec
+      - kind
+      - grade
+      - pack
+    variant_drop:
+      - pack
+      - grade
+    field_hint:
+      brand: "品牌"
+      product: "产品线 / 系列"
+      model: "型号代号"
+      spec: "关键规格尺寸"
+      kind: "物料名称（必填）"
+      grade: "等级 / 精度 / 材质标号"
+      pack: "数量或包装"
+    examples:
+      - "<品牌> <型号> <物料名>"
+    note: "未收录物料走此模板，关键词按 品牌 + 型号 + 物料名 三段式即可"

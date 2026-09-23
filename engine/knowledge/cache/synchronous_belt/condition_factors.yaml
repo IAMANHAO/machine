@@ -1,0 +1,49 @@
+---
+data_source: 成大先《机械设计手册》第3卷 第14篇 同步带传动（化学工业出版社）
+last_verified: 2026-09-17
+verification_status: single_source
+_todo: "需用 GB/T 11362-2021 表或第 2 个独立信源核实全部数值"
+unit_notes:
+  power: kW
+  speed: r/min
+  hours_per_day: h/d
+---
+
+# 工况系数 K_A（梯形齿同步带）
+# 用法：K_A = K_A[原动机][工作机][每日工作时数]
+# 适用：GB/T 11362 同步带（梯形齿）选型计算 Pd = K_A × P
+
+work_machines:
+  light_uniform:
+    name_zh: 轻型均匀载荷（如离心泵、风机、轻载输送机）
+  medium_uniform:
+    name_zh: 中等载荷（一般机床、搅拌器）
+  medium_impact:
+    name_zh: 中等冲击（起重机回转、纺织机械）
+  heavy_impact:
+    name_zh: 重冲击（破碎机、锻压机、压缩机）
+
+prime_movers:
+  ac_motor_normal:
+    name_zh: 交流电动机（启动转矩正常）
+    hours:
+      h_le_10:  { light_uniform: 1.0, medium_uniform: 1.1, medium_impact: 1.2, heavy_impact: 1.3 }
+      h_10_to_16: { light_uniform: 1.1, medium_uniform: 1.2, medium_impact: 1.3, heavy_impact: 1.5 }
+      h_gt_16:   { light_uniform: 1.2, medium_uniform: 1.3, medium_impact: 1.5, heavy_impact: 1.6 }
+  ac_motor_high:
+    name_zh: 交流电动机（启动转矩大、频繁启动）
+    hours:
+      h_le_10:  { light_uniform: 1.1, medium_uniform: 1.2, medium_impact: 1.3, heavy_impact: 1.4 }
+      h_10_to_16: { light_uniform: 1.2, medium_uniform: 1.3, medium_impact: 1.4, heavy_impact: 1.6 }
+      h_gt_16:   { light_uniform: 1.3, medium_uniform: 1.4, medium_impact: 1.6, heavy_impact: 1.7 }
+  diesel:
+    name_zh: 内燃机、电动机-液压马达
+    hours:
+      h_le_10:  { light_uniform: 1.1, medium_uniform: 1.2, medium_impact: 1.4, heavy_impact: 1.5 }
+      h_10_to_16: { light_uniform: 1.2, medium_uniform: 1.3, medium_impact: 1.5, heavy_impact: 1.6 }
+      h_gt_16:   { light_uniform: 1.4, medium_uniform: 1.5, medium_impact: 1.7, heavy_impact: 1.8 }
+
+# 取值函数用法示例（伪）
+# K_A[prime_mover][hours_bucket][work_machine]
+
+_table_comment: "这是一份简化表，正式选型前请用 GB/T 11362-2021 或成大先《机械设计手册》原书对照核验。本表数值仅用于初版骨架，已在 verification_status 标注为 single_source。"

@@ -1,0 +1,80 @@
+---
+data_source: 《机械设计基础》表 3-1「常用机械传动的主要性能」（清华大学出版社，第 3 章 机械传动装置的主要参数，ISBN 前缀 096287）—— 传动效率与常用传动比
+second_source: 传动比范围（单级圆柱齿轮 3~5、蜗杆 10~40）与蜗杆效率区间（0.5~0.8）经多处公开技术资料独立复核，与本表一致
+verification_status: single_source
+last_verified: 2026-09-22
+_todo: "1) 教材为第 5 级信源（按 references/source_priority.md 分级），
+     用于传动效率这类工程经验值尚可，但**标 🟢 需成大先《机械设计手册》或国标原表核对**。
+  2) 只录了表 3-1 覆盖的传动型式。**行星齿轮减速器、摆线针轮减速器不在该表内**，
+     因此本表没有它们的效率与传动比——选到会如实报缺口。
+  3) 齿轮效率按精度等级分档（7/8/9 级），该精度指 GB/T 10095 的齿轮精度等级，
+     不是减速器整机的精度。"
+unit_notes:
+  eta: 无量纲
+  i_min: 无量纲
+  i_max: 无量纲
+---
+
+# 常用机械传动的效率与传动比
+#
+# ── 总效率是各级效率的连乘 ──
+#
+#   η总 = η传动副 × η轴承^(轴承对数) × η联轴器^(联轴器个数)
+#
+# 教材原文的三条注意事项，直接影响怎么用这张表：
+#   (1) 同类型的几对传动副、轴承和联轴器，要**分别**计入各自的效率
+#   (2) 若传动副效率已包含其支承轴承，则不再重复计入该对轴承
+#   (3) 查到的是区间时一般取中间值；工作条件差、润滑维护不良取低值
+#
+# 本工作流对区间值一律取**下端**（偏保守，算出的输出功率偏小），
+# 与教材"一般取中间值"的口径不同——这是刻意的：
+# 选型时低估输出功率会选大一档，高估会选小一档，前者安全。
+
+gear_drive:
+  cylindrical_closed:
+    name_zh: 闭式圆柱齿轮传动
+    by_precision:
+      grade_7: {eta: 0.98, name_zh: 7 级精度}
+      grade_8: {eta: 0.97, name_zh: 8 级精度}
+      grade_9: {eta: 0.96, name_zh: 9 级精度}
+    ratio_single_stage: {i_min: 3, i_max: 5}
+    ratio_two_stage: {i_min: 8, i_max: 40}
+
+  bevel_closed:
+    name_zh: 闭式圆锥齿轮传动
+    by_precision:
+      grade_7: {eta: 0.97, name_zh: 7 级精度}
+      grade_8: {eta: 0.96, name_zh: 8 级精度}
+    ratio_single_stage: {i_min: 2, i_max: 3}
+
+worm_drive:
+  name_zh: 蜗杆传动
+  ratio: {i_min: 10, i_max: 40}
+  by_thread:
+    self_locking: {eta_min: 0.40, eta_max: 0.45, name_zh: 自锁（单头且导程角小）}
+    single: {eta_min: 0.70, eta_max: 0.75, name_zh: 单头}
+    double: {eta_min: 0.75, eta_max: 0.82, name_zh: 双头}
+    quad: {eta_min: 0.82, eta_max: 0.92, name_zh: 三头和四头}
+  note: "蜗杆效率与头数、材料、润滑都有关。设计时先初估头数选效率，
+    参数定下来后应重新精确计算——本工作流用的是初估值"
+
+belt_chain:
+  v_belt: {name_zh: V 带传动, eta: 0.96, i_min: 2, i_max: 4}
+  roller_chain: {name_zh: 滚子链传动, eta: 0.96, i_min: 2, i_max: 6}
+
+# 轴承效率按**一对**计。
+# 区间型条目额外给一个 eta = 区间下端，工作流取它；
+# eta_min / eta_max 保留，这样读者既看得见原始区间，也看得见实际用了哪个值。
+bearing_pair:
+  rolling_ball: {name_zh: 滚动轴承·球（稀油润滑）, eta: 0.99}
+  rolling_roller: {name_zh: 滚动轴承·滚子（稀油润滑）, eta: 0.98}
+  sliding_good: {name_zh: 滑动轴承·润滑良好, eta: 0.97, eta_min: 0.97, eta_max: 0.99}
+  sliding_poor: {name_zh: 滑动轴承·润滑不良, eta: 0.94, eta_min: 0.94, eta_max: 0.97}
+
+coupling_efficiency:
+  elastic: {name_zh: 弹性联轴器, eta: 0.99, eta_min: 0.99, eta_max: 0.995}
+  gear_type: {name_zh: 齿式联轴器, eta: 0.99}
+  oldham: {name_zh: 十字滑块联轴器, eta: 0.97, eta_min: 0.97, eta_max: 0.99}
+
+# 行星齿轮减速器、摆线针轮减速器不在教材表 3-1 内，本表**不收录**。
+# 它们的效率与传动比需厂商样本，选到这两类会如实报数据缺失。
