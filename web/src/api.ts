@@ -1,7 +1,8 @@
 import type {
-  AccountStatus, AiLimits, ApiError, AuditAll, Balance, ExplainResult, Health,
-  IntentResult, Material, MaterialAudit, Procure, Project, RunResult, Step,
-  SuggestResult, TableContent, Workflow,
+  AccountStatus, AiLimits, ApiError, AuditAll, Balance, ExplainResult,
+  GuidedInput, GuidedSession, Health, IntentResult, Material, MaterialAudit,
+  Procure, Project, RunResult, SearchStatus, Step, SuggestResult, TableContent,
+  Workflow,
 } from './types'
 
 /** 后端返回的业务错误（422/400），带结构化字段供表单定位。 */
@@ -121,16 +122,56 @@ export const api = {
   balance: () => call<Balance>('/account/balance'),
   setLimits: (l: AiLimits) => put<{ limits: AiLimits }>('/account/limits', l),
 
+  // ── 搜索服务（引导式阶段 1 的检索供能）──
+  searchStatus: () => call<SearchStatus>('/account/search'),
+  bindSearch: (api_key: string, provider: string) =>
+    post<{ binding: import('./types').SearchBinding; name_zh: string }>(
+      '/account/search/bind', { api_key, provider }),
+  activateSearch: (provider: string) =>
+    post<{ search_active: string }>('/account/search/activate', { provider }),
+  unbindSearch: (provider?: string) => call<{ unbound: boolean }>(
+    provider ? `/account/search?provider=${encodeURIComponent(provider)}`
+             : '/account/search', { method: 'DELETE' }),
+
+  // ── 引导式选型（SKILL.md 阶段 0~6）──
+  // 每一步都是一次往返：阶段推进由服务端决定，前端只是把它画出来。
+  guidedSessions: () => call<{ sessions: Array<{
+    id: string; material_text: string; stage: string; updated_at: string
+  }> }>('/guided'),
+  guidedStart: (material_text: string, mode = 'auto') =>
+    post<GuidedSession>('/guided', { material_text, mode }),
+  guidedGet: (sid: string) => call<GuidedSession>(`/guided/${sid}`),
+  guidedDiscard: (sid: string) =>
+    call<{ removed: boolean }>(`/guided/${sid}`, { method: 'DELETE' }),
+  // 阶段 1：检索 → AI 挑候选 → 服务端逐条取证
+  guidedResearch: (sid: string) =>
+    post<GuidedSession>(`/guided/${sid}/research`, {}),
+  // 用户拍板选一条依据（或自己填一条）
+  guidedChooseBasis: (sid: string, basis_id: string,
+                      custom?: Record<string, unknown>) =>
+    post<GuidedSession>(`/guided/${sid}/basis`, { basis_id, custom }),
+  // 阶段 2
+  guidedProposeInputs: (sid: string) =>
+    post<GuidedSession>(`/guided/${sid}/inputs`, {}),
+  guidedConfirmInputs: (sid: string, inputs?: GuidedInput[]) =>
+    post<GuidedSession>(`/guided/${sid}/inputs/confirm`, { inputs }),
+  // 阶段 3/4：整套步骤 → 用户一次性确认
+  guidedProposeSteps: (sid: string) =>
+    post<GuidedSession>(`/guided/${sid}/steps`, {}),
+  guidedConfirmFormulas: (sid: string, confirmed: boolean) =>
+    post<GuidedSession>(`/guided/${sid}/steps/confirm`, { confirmed }),
+  // 落盘之前也要能跑 —— "跑通了才存"的前提
+  guidedWorkflow: (sid: string) => call<Workflow>(`/guided/${sid}/workflow`),
+  guidedRun: (sid: string, values: Record<string, unknown>,
+              choices: Record<string, string> = {}) =>
+    post<RunResult>(`/guided/${sid}/run`, { values, choices }),
+  guidedSave: (sid: string) =>
+    post<{ saved: boolean; material: string; name_zh: string; note: string }>(
+      `/guided/${sid}/save`, {}),
+
   // ── AI 三接口 ──
   intent: (text: string, mode = 'auto') =>
     post<IntentResult>('/ai/intent', { text, mode }),
-  // 知识库里没有的物料：让 AI 起草一份流程。返回的是草稿，还没落盘。
-  draftWorkflow: (material_text: string, mode = 'auto') =>
-    post<import('./types').WorkflowDraft>('/ai/draft-workflow', { material_text, mode }),
-  // 跑通之后存进用户目录 —— 下次离线也能选这个物料
-  saveDraft: (spec: Record<string, unknown>) =>
-    post<{ saved: boolean; material: string; name_zh: string; note: string }>(
-      '/ai/save-draft', { spec }),
   deleteSaved: (material: string) =>
     call<{ removed: boolean }>(`/ai/saved/${encodeURIComponent(material)}`,
       { method: 'DELETE' }),

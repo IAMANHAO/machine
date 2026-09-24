@@ -31,6 +31,19 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC);
+
+-- 引导式选型的会话。**一次引导要花二十分钟**（要查手册、要核对公式），
+-- 进程重启不该让它归零；放内存里也撑不过一次 dev server 热重载。
+-- data_json 是整个会话状态，形状归 server/guided.py 管，这里只负责存取。
+CREATE TABLE IF NOT EXISTS guided_sessions (
+    id            TEXT PRIMARY KEY,
+    material_text TEXT NOT NULL,
+    stage         TEXT NOT NULL,
+    data_json     TEXT NOT NULL DEFAULT '{}',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_guided_updated ON guided_sessions(updated_at DESC);
 """
 
 
@@ -124,3 +137,62 @@ def next_sequence(material: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT COUNT(*) AS n FROM projects").fetchone()
     return int(row["n"]) + 1
+
+
+# --- 引导式选型的会话 -------------------------------------------------------
+
+def save_guided(session_id: str, material_text: str, stage: str,
+                data: dict) -> str:
+    """整份会话覆盖写。会话不大（几十 KB），增量更新不值得。"""
+    now = _now()
+    with connect() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM guided_sessions WHERE id = ?", (session_id,)).fetchone()
+        blob = json.dumps(data, ensure_ascii=False)
+        if exists:
+            conn.execute(
+                "UPDATE guided_sessions SET material_text=?, stage=?, "
+                "data_json=?, updated_at=? WHERE id=?",
+                (material_text, stage, blob, now, session_id))
+        else:
+            conn.execute(
+                "INSERT INTO guided_sessions "
+                "(id, material_text, stage, data_json, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (session_id, material_text, stage, blob, now, now))
+    return session_id
+
+
+def load_guided(session_id: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM guided_sessions WHERE id = ?", (session_id,)).fetchone()
+    if row is None:
+        return None
+    try:
+        data = json.loads(row["data_json"])
+    except json.JSONDecodeError:
+        data = {}
+    return {"id": row["id"], "material_text": row["material_text"],
+            "stage": row["stage"], "created_at": row["created_at"],
+            "updated_at": row["updated_at"], **(data if isinstance(data, dict) else {})}
+
+
+def list_guided(limit: int = 10) -> list[dict]:
+    """未走完的引导会话。用户中途去查手册、隔天回来要能接着走。"""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id, material_text, stage, created_at, updated_at "
+            "FROM guided_sessions ORDER BY updated_at DESC LIMIT ?",
+            (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_guided(session_id: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM guided_sessions WHERE id = ?", (session_id,))
+    return cur.rowcount > 0
+
+
+def new_guided_id() -> str:
+    return uuid.uuid4().hex[:12]

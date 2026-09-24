@@ -18,7 +18,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import DEV_ORIGINS, web_dist
 from .routers import (
-    account, ai, catalog, export, health, knowledge, projects, selection,
+    account, ai, catalog, export, guided, health, knowledge, projects,
+    selection,
 )
 
 
@@ -38,7 +39,7 @@ def create_app() -> FastAPI:
     )
 
     for mod in (health, catalog, selection, projects, knowledge, account, ai,
-                export):
+                guided, export):
         app.include_router(mod.router, prefix="/api")
 
     @app.exception_handler(Exception)

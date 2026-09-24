@@ -17,7 +17,7 @@
 ```bash
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e . ".[dev]"   # Windows
-.venv/Scripts/python.exe -m pytest -q                    # 372 项，应全绿
+.venv/Scripts/python.exe -m pytest -q                    # 470 项，应全绿
 
 cd web && npm install                                    # 只在改前端时需要
 ```
@@ -89,7 +89,8 @@ python -m mds audit            # 看缺口清单，精确到哪张表、哪个�
 - [ ] 导出报告里会不会漏进未渲染的模板变量？
 - [ ] 加了新数字吗？**它的出处能追溯吗？能不能用定义式复算一遍？**
 - [ ] 改了 `workflows/*.yaml` 吗？对应的 `.md` 回填了吗？
-- [ ] 动了 AI 起草通道吗？两道闸门（过 `spec.parse()` + 不得引用数据表）还在吗？
+- [ ] 动了引导式通道吗？三道闸门（依据取证 + 公式里没有编出来的系数 +
+      source.ref 落在已确认依据之内）还在吗？修正循环有没有悄悄放宽判据？
 
 `DataMissing`（该补数据）和 `NoSolution`（该改设计）**必须分清**。
 把两种不同的事情叫成一个名字，会让软件说出误导用户的话。

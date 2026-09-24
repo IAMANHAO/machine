@@ -24,7 +24,7 @@ __all__ = [
     "DataMissing", "InputError", "MDSError", "SpecError",
     "knowledge", "materials", "workflow_payload", "execute", "procure_build",
     "procure_for_trace", "audit_material", "audit_all", "read_table",
-    "workflow_spec", "material_ids",
+    "workflow_spec", "material_ids", "payload_of", "execute_spec",
     "stale_sources", "engine_version", "reset_caches",
 ]
 
@@ -148,7 +148,17 @@ def workflow_spec(material: str):
 
 def workflow_payload(material: str) -> dict:
     """阶段 2 表单所需的全部信息。"""
-    spec = _spec(material)
+    return payload_of(_spec(material))
+
+
+def payload_of(spec) -> dict:
+    """同上，但接受规格对象本身。
+
+    引导式选型要在**还没落盘**的时候就把表单画出来——"跑通了才存"这条原则
+    不能为了少写一个函数而破掉（一份没跑通的流程存下来，只会在物料列表里
+    留一个点进去就报错的入口）。
+    """
+    material = spec.material
     know = knowledge()
     options = enum_choices(spec, know)
 
@@ -191,7 +201,15 @@ def workflow_payload(material: str) -> dict:
 
 def execute(material: str, values: dict, choices: dict | None = None) -> dict:
     """跑一次选型，并在成功时附上采购链接。"""
-    spec = _spec(material)
+    return execute_spec(_spec(material), values, choices)
+
+
+def execute_spec(spec, values: dict, choices: dict | None = None) -> dict:
+    """同上，但接受规格对象本身（引导式选型在落盘前也要能跑）。
+
+    **走的是同一个 `runner.run`**：引导式没有给引擎加任何新的执行路径，
+    所以阶段 3~6 的行为与随包物料逐字相同。
+    """
     trace = run_selection(spec, values, knowledge(), choices or {})
     payload: dict[str, Any] = {"trace": trace.to_dict(), "procure": None,
                                "procure_error": None}

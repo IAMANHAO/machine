@@ -92,10 +92,15 @@ class WorkflowSpec:
     # 数据自检用的探测网格：base 给固定参数，sweep 给要遍历的维度
     probe: dict = field(default_factory=dict)
     path: Path | None = None
-    # builtin（随包）/ user（用户自建）/ ai_generated（AI 起草后保存的）
-    # ai_generated 的置信度一律按最低档处理，界面、报告、导出件全程打标
+    # builtin（随包）/ user（用户自建）/ user_guided（AI 引导、用户逐项确认后保存的）
+    # / ai_generated（旧版 AI 一次性起草的，只读兼容，不再新建）
+    # 后两者的置信度一律按最低档处理，界面、报告、导出件全程打标
     provenance: str = "builtin"
-    generated_by: str = ""          # 起草它的模型，便于追溯
+    generated_by: str = ""          # 引导它的模型，便于追溯
+    # 引导式选型确认下来的**依据**：标准号、被取证的 URL、抓取时间、
+    # 内容指纹、印证分档。随包工作流为空——它们的信源记在数据表的
+    # frontmatter 里，不需要再记一份。
+    basis: dict = field(default_factory=dict)
 
     def input(self, iid: str) -> InputDef | None:
         return next((i for i in self.inputs if i.id == iid), None)
@@ -163,6 +168,7 @@ def parse(data: dict, path: Path | None = None) -> WorkflowSpec:
         probe=dict(data.get("probe") or {}),
         provenance=str(data.get("provenance") or "builtin"),
         generated_by=str(data.get("generated_by") or ""),
+        basis=dict(data.get("basis") or {}),
         path=path,
     )
     _validate(spec)

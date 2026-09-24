@@ -9,15 +9,24 @@ const STATUS_BADGE: Record<Material['status'], { label: string; kind: 'ok' | 'wa
   planned: { label: '待生成', kind: 'warn' },
 }
 
-/** AI 起草的物料单独打标 —— 它没有任何信源，不该和随包的看起来一样。 */
+/** 自建物料单独打标 —— 它们没有随包那层核验，不该和随包的看起来一样。 */
 function badgeFor(m: Material) {
-  return m.provenance === 'ai_generated'
-    ? { label: 'AI 起草', kind: 'warn' as const }
-    : STATUS_BADGE[m.status]
+  if (m.provenance === 'user_guided') return { label: '引导自建', kind: 'warn' as const }
+  if (m.provenance === 'ai_generated') return { label: '旧版起草', kind: 'err' as const }
+  if (m.provenance === 'user') return { label: '自建', kind: 'info' as const }
+  return STATUS_BADGE[m.status]
 }
 
-export default function Home({ onStart, onOpen, aiBound }: {
+const PROVENANCE_TIP: Partial<Record<Material['provenance'], string>> = {
+  user_guided: '引导式自建：依据经取证、由你确认，公式由你过目确认，但未经核验',
+  ai_generated: '旧版「AI 一次性起草」，没有任何依据——建议用引导式重做一遍',
+  user: '你自己写的 YAML',
+}
+
+export default function Home({ onStart, onGuide, onOpen, aiBound }: {
   onStart: (material: string, values?: Record<string, unknown>) => void
+  /** 知识库里没有这个物料时的出路：走引导式选型 */
+  onGuide: (materialText: string, values?: Record<string, unknown>) => void
   onOpen: (project: Project) => void
   aiBound: boolean
 }) {
@@ -25,8 +34,6 @@ export default function Home({ onStart, onOpen, aiBound }: {
   const [parsing, setParsing] = useState(false)
   const [intent, setIntent] = useState<IntentResult | null>(null)
   const [intentErr, setIntentErr] = useState('')
-  const [drafting, setDrafting] = useState(false)
-  const [draftErr, setDraftErr] = useState<string[]>([])
   const [materials, setMaterials] = useState<Material[] | null>(null)
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [error, setError] = useState<string>('')
@@ -37,30 +44,9 @@ export default function Home({ onStart, onOpen, aiBound }: {
       .catch(e => setError(e.message))
   }, [])
 
-  /**
-   * 知识库里没有这个物料时的出路：让 AI 起草一份流程。
-   *
-   * 起草出来的是**草稿**，直接带进工作台跑。跑通之后用户才决定存不存——
-   * 一份没跑通的流程存下来，只会在物料列表里留一个点进去就报错的入口。
-   */
-  const draft = async (name: string) => {
-    setDrafting(true); setDraftErr([])
-    try {
-      const d = await api.draftWorkflow(name)
-      // 先存再进工作台：引擎要能按 id 加载到它，才跑得起来
-      await api.saveDraft(d.spec)
-      const fresh = await api.materials()
-      setMaterials(fresh)
-      onStart(d.material, intent?.values)
-    } catch (e) {
-      const err = e as RequestError & { detail?: { reasons?: string[] } }
-      setDraftErr(err.detail?.reasons?.length ? err.detail.reasons : [err.message])
-    } finally { setDrafting(false) }
-  }
-
   const parse = async () => {
     if (!text.trim()) return
-    setParsing(true); setIntentErr(''); setDraftErr([]); setIntent(null)
+    setParsing(true); setIntentErr(''); setIntent(null)
     try {
       const r = await api.intent(text)
       setIntent(r)
@@ -99,33 +85,26 @@ export default function Home({ onStart, onOpen, aiBound }: {
         {intentErr && <div className="mt-3"><Alert tone="err" title="识别失败">{intentErr}</Alert></div>}
         {intent && !intent.material && (
           <div className="mt-3">
-            <Alert tone="warn" title={intent.can_draft
+            <Alert tone="warn" title={intent.can_guide
               ? `知识库里还没有「${intent.unknown_material}」`
               : '没认出是哪种物料'}>
-              {intent.can_draft ? (
+              {intent.can_guide ? (
                 <>
-                  可以让 AI 起草一份这个物料的选型流程，再按正常流程走下去。
+                  可以按选型流程一步步引导你把它选完：
+                  <b>先联网检索并取证依据</b>，你从候选里挑一条，再按那条依据
+                  列出要问的参数、给出整套计算与校核，由你过目确认后交给引擎执行。
                   <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
-                    起草的是<b>流程</b>，不是数据：所有需要查手册的系数都会做成输入项，
+                    AI 只给<b>流程</b>，不给数：所有需要查手册的量都会做成输入项，
                     由你自己填。结果会标成 <b>🔴 未经核验</b>——
-                    公式是否适用于你的工况，需要你对照手册确认。
+                    取证只证明那份文件里确实有这个标准号，
+                    不证明这个公式适用于你的工况。
                   </div>
-                  <button className="btn btn-p mt-3" disabled={drafting}
-                          onClick={() => void draft(intent.unknown_material)}>
-                    {drafting ? '起草中…' : `让 AI 起草「${intent.unknown_material}」的选型流程 →`}
+                  <button className="btn btn-p mt-3"
+                          onClick={() => onGuide(intent.unknown_material, intent.values)}>
+                    {`引导我选「${intent.unknown_material}」→`}
                   </button>
                 </>
               ) : (intent.notes || '请直接从下面的物料入口里选一个。')}
-            </Alert>
-          </div>
-        )}
-        {draftErr.length > 0 && (
-          <div className="mt-3">
-            <Alert tone="err" title="起草的流程没通过合规检查">
-              引擎宁可拒绝，也不让一份带着编造系数的流程跑起来。可以再试一次。
-              <ul className="mt-2 ml-4 list-disc text-[11px]">
-                {draftErr.slice(0, 5).map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
             </Alert>
           </div>
         )}
@@ -145,8 +124,8 @@ export default function Home({ onStart, onOpen, aiBound }: {
                 <button key={m.id}
                         onClick={() => usable ? onStart(m.id) : undefined}
                         disabled={!usable}
-                        title={m.provenance === 'ai_generated'
-                          ? `${m.name_zh} · AI 起草，未经核验`
+                        title={PROVENANCE_TIP[m.provenance]
+                          ? `${m.name_zh} · ${PROVENANCE_TIP[m.provenance]}`
                           : (usable ? `${m.name_zh} · ${m.standard}` : m.note)}
                         className={`card p-3 text-center transition ${usable ? 'hover:border-blue-500' : 'opacity-60 cursor-not-allowed'}`}>
                   <div className="text-[22px] mb-1">{m.icon}</div>

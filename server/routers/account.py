@@ -166,3 +166,66 @@ def set_limits(body: LimitsIn) -> dict:
     bd = ai.budget()
     limits = bd.set_limits(ai.Limits(**body.model_dump()))
     return {"limits": limits.to_dict(), "usage_today": bd.today()}
+
+
+# --- 搜索服务（引导式选型的阶段 1 要真的联网检索） --------------------------
+#
+# 与 AI 绑定**完全独立**：解绑搜索服务不动 AI 账号，反之亦然。
+# 没绑搜索服务时引导式退到白名单站点那一级，其余功能一切照常。
+
+class SearchBindIn(BaseModel):
+    api_key: str
+    provider: str = ""
+
+
+class SearchActivateIn(BaseModel):
+    provider: str
+
+
+@router.get("/search")
+def search_status() -> dict:
+    from .. import search_providers
+
+    body = search_providers.status()
+    body["notice"] = (
+        "搜索服务用于引导式选型的阶段 1：检索这个物料该依据哪份标准或手册。"
+        "本软件同样不自带搜索 key，费用计入你自己的账号。"
+        "不绑也能用——那时只在白名单站点（mechtool.cn 等）的本地目录里找，"
+        "冷门物料可能找不到。")
+    return body
+
+
+@router.post("/search/bind")
+def search_bind(body: SearchBindIn) -> dict:
+    """绑定一个搜索服务。**验证会真的发一次查询，消耗一次配额。**
+
+    三家都没有免费的"验证"接口，所以这一点在点按钮之前就写在对话框里——
+    与方舟/百炼的对话探针同一个处理方式。
+    """
+    from .. import search_providers
+
+    try:
+        return search_providers.bind(
+            body.api_key, provider=body.provider or search_providers.DEFAULT_PROVIDER)
+    except search_providers.SearchError as exc:
+        bad = ("unauthorized", "forbidden", "not_bound", "unknown_provider")
+        raise _fail(exc, 422 if exc.kind in bad else 400)
+    except ai.CredentialError as exc:
+        raise _fail(exc, 500)
+
+
+@router.post("/search/activate")
+def search_activate(body: SearchActivateIn) -> dict:
+    from .. import search_providers
+
+    try:
+        return search_providers.activate(body.provider)
+    except search_providers.SearchError as exc:
+        raise _fail(exc, 409)
+
+
+@router.delete("/search")
+def search_unbind(provider: str | None = None) -> dict:
+    from .. import search_providers
+
+    return search_providers.unbind(provider)

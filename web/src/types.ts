@@ -1,6 +1,15 @@
 /** 与 server/schemas.py 一一对应。trace 结构直接来自引擎，前端不做二次加工。 */
 
 export type Confidence = 'verified' | 'single_source' | 'self_defined' | 'unknown'
+
+/**
+ * 一份工作流的出身。
+ * - `builtin`      随包，有信源标注
+ * - `user`         用户自己手写的 YAML
+ * - `user_guided`  引导式选型：依据经服务端取证、由用户确认，公式由用户过目确认
+ * - `ai_generated` 旧版「AI 一次性起草」，只读兼容，不再新建
+ */
+export type Provenance = 'builtin' | 'user' | 'user_guided' | 'ai_generated'
 export type RunStatus =
   | 'ok' | 'check_failed' | 'data_missing' | 'needs_choice' | 'no_solution'
 export type StepStatus = RunStatus | 'skipped' | 'not_applicable'
@@ -26,8 +35,8 @@ export interface Material {
   confidence: Confidence
   workflow_doc: string
   note: string
-  /** builtin 随包 / user 自建 / ai_generated AI 起草——后者一律按 🔴 显示 */
-  provenance: 'builtin' | 'user' | 'ai_generated'
+  /** 出身。user_guided / ai_generated 一律按 🔴 显示 */
+  provenance: Provenance
 }
 
 export interface Option { value: string; label: string }
@@ -65,7 +74,7 @@ export interface Workflow {
   name_zh: string
   standard: string
   workflow_doc: string
-  provenance: 'builtin' | 'user' | 'ai_generated'
+  provenance: Provenance
   generated_by: string
   notes: string[]
   inputs: InputDef[]
@@ -386,25 +395,182 @@ export interface IntentResult {
   values: Record<string, number | string>
   /** 清单里没有时，用户想选的物料名。认出来了就是空串。 */
   unknown_material: string
-  /** 能不能让 AI 起草这个物料的流程。离线时恒为 false —— 不给点了没反应的按钮 */
-  can_draft: boolean
+  /** 能不能走引导式选型。离线时恒为 false —— 阶段 1 要真的联网取证 */
+  can_guide: boolean
   unmatched: string[]
   notes: string
   source: 'ai' | 'offline' | 'empty'
   usage?: Usage
 }
 
-/** AI 起草的工作流草稿。**还没落盘**，跑通一次之后才由用户决定存不存。 */
-export interface WorkflowDraft {
-  material: string
+// ── 引导式选型（SKILL.md 阶段 0~6）────────────────────────────────────
+
+/** 一条依据的取证结果。**这是引导式与旧版起草最大的区别。** */
+export interface Evidence {
+  claim: string
+  keys: string[]
+  /**
+   * - `cross_checked`      两个不同注册域都印证到了
+   * - `trusted`            只有一处，但那处是白名单可信站（mechtool.cn）
+   * - `single_source`      只有一处，照实标，不阻断
+   * - `unverified`         抓到了正文却没有它声称的标准号 → **选不了**
+   * - `unverifiable_claim` 提不出可比对的关键词，只能由用户自己核
+   */
+  status: 'cross_checked' | 'trusted' | 'single_source' | 'unverified'
+        | 'unverifiable_claim'
+  /** 够不够资格被选为依据往下走 */
+  usable: boolean
+  domains: string[]
+  hits: EvidenceDoc[]
+  misses: EvidenceDoc[]
+  failures: EvidenceDoc[]
+}
+
+export interface EvidenceDoc {
+  url: string
+  final_url: string
+  title: string
+  domain: string
+  tier: 'trusted' | 'normal' | 'unlisted'
+  fetched_at: string
+  fingerprint: string
+  ok: boolean
+  error: string
+}
+
+export interface BasisCandidate {
+  id: string
+  claim: string
+  standard: string
+  why: string
+  outline: string[]
+  urls: string[]
+  /** 被剔除的引用：不在检索结果集里，即模型凭记忆编的 */
+  dropped_urls: string[]
+  evidence: Evidence
+}
+
+export interface ConfirmedBasis {
+  id: string
+  claim: string
+  standard: string
+  outline: string[]
+  urls: string[]
+  status: string
+  domains?: string[]
+  confirmed_at: string
+  confirmed_by: string
+}
+
+/** 引导给出的一个参数。`round` 决定第几轮问，单轮不超过 6 项。 */
+export interface GuidedInput {
+  id: string
   name_zh: string
-  spec: Record<string, unknown>
-  inputs: number
-  steps: number
-  checks: number
+  unit: string
+  type: 'number' | 'enum' | 'text'
+  required: boolean
+  round: number
+  domain?: { min?: number; max?: number }
+  options?: Option[]
+  from_handbook?: boolean
+  hint: string
+}
+
+/** 某个阶段修了几轮才过闸门。**不是可以藏起来的事。** */
+export interface RepairAttempt {
+  attempt: number
+  reasons: string[]
+  passed: boolean
+  stopped?: string
+  usage: Usage
+}
+
+export type GuidedStage = 'new' | 'basis' | 'inputs' | 'steps' | 'ready' | 'saved'
+
+export interface GuidedSession {
+  id: string
+  material_text: string
+  stage: GuidedStage
+  material: string
+  material_id: string
+  name_zh: string
+  model: string
+
+  search: { rung: string; detail: string; problems: string[]; urls: string[] }
+  known_urls: string[]
+  candidates: BasisCandidate[]
+  usable_candidates: number
+  basis: Partial<ConfirmedBasis>
+  excerpts: { url: string; title: string; excerpt: string }[]
+
+  inputs: GuidedInput[]
+  inputs_confirmed_at: string
+
+  steps: Record<string, unknown>[]
+  result: ResultRow[]
+  missing_inputs: { id: string; name_zh: string; why: string; where: string }[]
+  notes: string[]
   confidence_note: string
-  source: 'ai'
-  usage?: Usage
+  formulas_confirmed_at: string
+
+  repair_log: Record<string, RepairAttempt[]>
+  created_at: string
+  updated_at: string
+
+  // 服务端算好的"现在能做什么"。前端据此置灰按钮，**但后端仍然会拦**。
+  can_choose_basis: boolean
+  can_propose_inputs: boolean
+  can_propose_steps: boolean
+  can_confirm_formulas: boolean
+  can_run: boolean
+}
+
+/** 模型连着几轮都没过闸门时的错误体。 */
+export interface GuidanceRejection extends ApiError {
+  reasons: string[]
+  repair_log: RepairAttempt[]
+  stage: string
+}
+
+// ── 搜索服务（引导式阶段 1 的检索供能）────────────────────────────────
+
+export interface SearchProviderSpec {
+  id: string
+  name_zh: string
+  console_url: string
+  notes: string
+  key_env_hint: string
+  endpoint: string
+}
+
+export interface SearchBinding {
+  profile: string
+  provider: string
+  label: string
+  bound_at: string
+  last_hits: number
+  name_zh?: string
+  active?: boolean
+  key_present?: boolean
+}
+
+export interface WhitelistSite {
+  domain: string
+  name_zh: string
+  tier: 'trusted' | 'normal'
+  note: string
+  index_urls: string[]
+}
+
+export interface SearchStatus {
+  bound: boolean
+  search_active: string
+  bindings: SearchBinding[]
+  providers: SearchProviderSpec[]
+  whitelist: WhitelistSite[]
+  /** 这台机器上阶段 1 实际会走哪一级 */
+  rung: 'binding' | 'whitelist'
+  notice: string
 }
 
 export interface Suggestion {

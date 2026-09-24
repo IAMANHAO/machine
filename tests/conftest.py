@@ -59,21 +59,39 @@ class FakeProvider:
         return {"is_available": True, "currency": "CNY", "total_balance": "42.00",
                 "granted_balance": "0.00", "topped_up_balance": "42.00"}
 
+    @staticmethod
+    def _scripted(key, default):
+        """取剧本。**列表按调用顺序逐个消耗** —— 修正循环要靠这个来测：
+        第一次给个不合规的，第二次给个合规的，断言引擎真的退回去让它改了。
+        """
+        val = FakeProvider.script.get(key, default)
+        if isinstance(val, list):
+            return val.pop(0) if val else default
+        return val
+
     def chat(self, messages, *, model, json_mode=False, max_tokens=800, temperature=0.2):
         from server.ai.client import Completion, Usage
         FakeProvider.calls.append({"model": model, "json_mode": json_mode,
-                                   "max_tokens": max_tokens})
+                                   "max_tokens": max_tokens,
+                                   "turns": len(messages)})
         sys_prompt = messages[0]["content"]
         if "意图解析" in sys_prompt:
-            body = FakeProvider.script.get("intent", {
+            body = self._scripted("intent", {
                 "material": "synchronous_belt",
                 "values": {"P": 5.5, "n1": 1450}, "unmatched": [], "notes": ""})
         elif "参数建议" in sys_prompt:
-            body = FakeProvider.script.get("suggest", {
+            body = self._scripted("suggest", {
                 "suggestions": {"a0": {"value": 400, "rationale": "取推荐区间中部"}},
                 "skipped": {}})
+        elif "依据检索" in sys_prompt:
+            body = self._scripted("basis", {"candidates": [], "material_id": "",
+                                            "name_zh": "", "notes": ""})
+        elif "参数引导" in sys_prompt:
+            body = self._scripted("inputs", {"inputs": [], "notes": ""})
+        elif "分步计算与校核" in sys_prompt:
+            body = self._scripted("steps", {"steps": [], "result": []})
         else:
-            return Completion(text=FakeProvider.script.get("explain", "这一步在算设计功率。"),
+            return Completion(text=self._scripted("explain", "这一步在算设计功率。"),
                               usage=Usage(10, 20, 30, 0, model))
         text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
         return Completion(text=text, usage=Usage(100, 50, 150, 20, model))
@@ -129,3 +147,16 @@ def bind_as(client):
         assert r.status_code == 200, r.text
         return r.json()
     return _bind
+
+
+@pytest.fixture()
+def fake():
+    """conftest 里那个 FakeProvider 类**本身**。
+
+    **不要在测试模块里写 `from tests.conftest import FakeProvider`。**
+    tests/ 不是包，pytest 把 conftest 当顶层模块加载；那样 import 会生成
+    第二个模块对象、第二个 FakeProvider 类，往它身上摆的剧本对真正在用的
+    那个类毫无作用——表现是"剧本明明设了，模型却总返回默认值"。
+    排查过一次，用这个夹具拿类，别再踩。
+    """
+    return FakeProvider

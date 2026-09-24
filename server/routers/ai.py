@@ -1,4 +1,4 @@
-"""AI 三接口。
+"""AI 的三个通用接口（intent / suggest / explain）。
 
 都不碰数值计算。`suggest` 的每个建议值在返回前都走过与手输完全相同的
 校验闸门（mds.runner._coerce），过不了的以 rejected 返回，调用方拿不到
@@ -98,64 +98,15 @@ def explain(body: ExplainIn) -> dict:
 
 # --- 知识库里没有的物料：起草 + 保存 ----------------------------------------
 
-class DraftIn(BaseModel):
-    material_text: str = Field(description="用户说的物料名，如「磁吸铁片」")
-    mode: str = "auto"
-
-
-class SaveDraftIn(BaseModel):
-    spec: dict = Field(description="draft 返回的那份 spec，原样回传")
-
-
-@router.post("/draft-workflow")
-def draft_workflow(body: DraftIn) -> dict:
-    """知识库里没有的物料 → AI 起草一份可执行的选型流程。
-
-    **这是在线增强，没有离线降级方案**：离线时引擎没有任何依据能凭空造出
-    一个物料的选型流程，只能如实说不行。
-
-    起草结果要过两道闸门（格式合法 + 不携带数据表）才会返回，
-    且返回的是**草稿**，还没落盘——跑通一次完整选型之后才由用户决定存不存。
-    """
-    provider = ai.current_provider(body.mode)
-    if provider is None:
-        raise _fail(ai.AIError(
-            "起草新物料的选型流程需要绑定账号并联网。"
-            "已有的 12 个物料离线照常可用；"
-            "你也可以按 docs/workflow-spec.md 自己写一份 YAML 放进用户目录。",
-            kind="not_bound"), 409)
-    try:
-        return tasks.draft_workflow(
-            body.material_text, engine.material_ids(),
-            provider, ai.current_model(), ai.budget())
-    except ai.BudgetExceeded as exc:
-        raise _fail(exc, 429)
-    except tasks.DraftRejected as exc:
-        # 422：草稿本身不合规，不是服务出错。reasons 逐条告诉前端哪里不行。
-        raise _fail(exc, 422)
-    except ai.AIError as exc:
-        raise _fail(exc, 502 if exc.retryable else 400)
-
-
-@router.post("/save-draft")
-def save_draft(body: SaveDraftIn) -> dict:
-    """把跑通过的草稿存进用户目录，**下次离线也能选这个物料**。
-
-    落盘前会再独立校验一遍——不信任调用方，也不信任草稿在内存里待过一段时间。
-    """
-    from .. import drafts
-
-    try:
-        out = drafts.save(body.spec)
-    except drafts.DraftError as exc:
-        raise _fail(exc, 422)
-    engine.reset_caches()          # 让物料列表立刻看到它
-    return out
+# 「AI 一次性起草」的两个接口（/draft-workflow、/save-draft）已删除：
+# 门槛太低——能拦住编造的数据表，拦不住编造的公式。取而代之的是
+# /api/guided/*，那是一条有检索、有取证、有用户确认的路（见 docs/decisions.md）。
+# 删除已保存物料的接口留在这里，因为它对两种出身的物料都适用。
 
 
 @router.delete("/saved/{material}")
 def delete_saved(material: str) -> dict:
-    """删掉一个已保存的生成物料。随包物料不在这个目录里，删不掉。"""
+    """删掉一个已保存的自建物料。随包物料不在这个目录里，删不掉。"""
     from .. import drafts
 
     try:

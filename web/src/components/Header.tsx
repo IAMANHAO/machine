@@ -1,6 +1,8 @@
 import type { Health } from '../types'
 
-export type Page = 'home' | 'work' | 'knowledge' | 'settings'
+// guided 不进导航栏：它不是一个可以随时点进去的目的地，
+// 而是首页认不出物料时才有的一条岔路（要带着 materialText）。
+export type Page = 'home' | 'guided' | 'work' | 'knowledge' | 'settings'
 export type Mode = 'online' | 'offline' | 'auto'
 
 const NAV: { key: Page; label: string }[] = [

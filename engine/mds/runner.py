@@ -266,20 +266,52 @@ def run(spec: WorkflowSpec, values: dict, knowledge: Knowledge | None = None,
     if not halted:
         trace.result = _render_result(spec, env)
 
-    # AI 起草的工作流：这条警告要排在最前面，且比数据表那条更重。
-    # 数据表未核验，至少流程本身是有依据的；起草的流程连公式都没人核对过。
-    if spec.provenance == "ai_generated":
+    # 非随包工作流：这条警告要排在最前面，且比数据表那条更重。
+    # 数据表未核验，至少流程本身是随包核过的；自建流程的公式没有那层保障。
+    if spec.provenance == "user_guided":
+        trace.confidence = "unknown"
+        trace.warnings.append(_guided_warning(spec))
+    elif spec.provenance == "ai_generated":
+        # 旧版"AI 一次性起草"留下的物料，只读兼容，不再新建。
         trace.confidence = "unknown"
         trace.warnings.append(
-            f"⚠ 本物料的**选型流程**由 AI 起草（{spec.generated_by or '未知模型'}），"
-            "未经任何核验。引擎只保证它格式合法、且没有携带编造的数据表——"
-            "公式是否适用于你的工况、各系数该取多少，需要你对照手册逐项确认。"
-            "**不要拿这份结果直接定稿。**")
+            f"⚠ 本物料的**选型流程**由旧版的「AI 一次性起草」生成"
+            f"（{spec.generated_by or '未知模型'}），**没有任何依据，也没有人核对过公式**。"
+            "现在的引导式选型会先取证依据、再让你确认整套公式——"
+            "建议用引导式重做一遍，把这份替换掉。**不要拿这份结果定稿。**")
     elif trace.confidence != "verified":
         trace.warnings.append(
             "本次选型引用的数据表中存在未经双源核验的条目（🟡 single_source），"
             "结果仅供初步设计参考，正式投产前请对照标准原件复核。")
     return trace
+
+
+_BASIS_STATUS_ZH = {
+    "cross_checked": "两处独立来源互证",
+    "trusted": "可信站点单一来源",
+    "single_source": "单一来源",
+    "unverifiable_claim": "无法自动取证，由你自行核对",
+}
+
+
+def _guided_warning(spec: WorkflowSpec) -> str:
+    """引导式选型的结果警告。
+
+    它和 ai_generated 那条的区别不是措辞软一点，而是**说的是另一件事**：
+    依据是用户确认的、公式是用户过目的、数值是用户填的或引擎算的。
+    但这仍然不等于核验 —— 取证只证明那份文件里确实有这个标准号，
+    不证明这个公式适用于用户的工况。这条界限必须写在结果里。
+    """
+    basis = spec.basis or {}
+    claim = str(basis.get("claim") or "").strip() or "未记录依据"
+    status = _BASIS_STATUS_ZH.get(str(basis.get("status") or ""), "未取证")
+    urls = [u for u in (basis.get("urls") or []) if u][:3]
+    tail = ("　引用：" + "、".join(urls)) if urls else ""
+    return (
+        f"⚠ 本物料的**选型流程**是在线引导下组装的。依据：{claim}（取证：{status}）。"
+        "整套公式已由你过目确认，数值全部由你填写或由引擎算出，AI 没有提供任何数值。"
+        "但这**不等于经过核验**——取证只证明那份文件里确实有这个标准号，"
+        "不证明这个公式适用于你的工况。正式定稿前请对照依据原文复核。" + tail)
 
 
 def _run_step(step: StepDef, env: dict, spec: WorkflowSpec, knowledge: Knowledge,

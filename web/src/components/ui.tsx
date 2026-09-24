@@ -80,17 +80,19 @@ export function Spinner({ label = '加载中…' }: { label?: string }) {
 
 /** 数据缺失 / 需要决策 / 出错时的统一呈现：说清楚发生了什么、缺口在哪。 */
 export function Alert({ tone, title, children }: {
-  tone: 'err' | 'warn' | 'info'
+  tone: 'err' | 'warn' | 'info' | 'ok'
   title: string
   children?: ReactNode
 }) {
   const bg = {
-    err: 'rgba(239,68,68,.08)', warn: 'rgba(245,158,11,.08)', info: 'rgba(59,130,246,.08)',
+    err: 'rgba(239,68,68,.08)', warn: 'rgba(245,158,11,.08)',
+    info: 'rgba(59,130,246,.08)', ok: 'rgba(34,197,94,.08)',
   }[tone]
   const border = {
-    err: 'rgba(239,68,68,.35)', warn: 'rgba(245,158,11,.35)', info: 'rgba(59,130,246,.35)',
+    err: 'rgba(239,68,68,.35)', warn: 'rgba(245,158,11,.35)',
+    info: 'rgba(59,130,246,.35)', ok: 'rgba(34,197,94,.35)',
   }[tone]
-  const color = { err: '#f87171', warn: '#fbbf24', info: '#60a5fa' }[tone]
+  const color = { err: '#f87171', warn: '#fbbf24', info: '#60a5fa', ok: '#4ade80' }[tone]
   return (
     <div className="p-4 rounded-lg text-[13px] leading-relaxed"
          style={{ background: bg, border: `1px solid ${border}` }}>

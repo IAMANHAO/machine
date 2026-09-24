@@ -62,6 +62,34 @@ class Binding:
 
 
 @dataclass
+class SearchBinding:
+    """绑定的搜索服务（Tavily / Brave / Serper）的非敏感部分。
+
+    单独一个类型而不是复用 Binding：搜索服务没有 model、没有 base_url 可改、
+    没有模型列表。硬塞进 Binding 会留下一半永远为空的字段，
+    读代码的人分不清那是"没填"还是"不适用"。
+    """
+
+    profile: str = ""            # 凭据库里的 profile 名，形如 search:serper
+    provider: str = ""           # serper | tavily | brave
+    label: str = ""              # 供界面显示的脱敏 key
+    bound_at: str = ""
+    last_hits: int = 0           # 绑定验证时真的搜到了几条
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def search_profile(provider: str) -> str:
+    """搜索 key 在凭据库里的 profile 名。
+
+    前缀是必须的：AI 的 profile 直接用服务商 id（`deepseek`），
+    不加前缀的话哪天有一家同时提供两种服务就会互相顶掉。
+    """
+    return f"search:{(provider or '').strip().lower()}"
+
+
+@dataclass
 class Account:
     """本机绑定的全部账号。**只有元数据，key 在系统凭据库里。**
 
@@ -71,15 +99,25 @@ class Account:
 
     active: str = ""
     bindings: dict = field(default_factory=dict)   # provider id -> Binding
+    # 搜索服务（引导式选型的阶段 1 要真的联网检索）。与 AI 绑定完全分开：
+    # 一把 AI key 和一把搜索 key 是两件事，解绑其中一个不该动另一个。
+    search_active: str = ""
+    search_bindings: dict = field(default_factory=dict)  # provider id -> SearchBinding
 
     def get(self, provider: str | None = None) -> Binding | None:
         return self.bindings.get(provider or self.active or "")
 
+    def get_search(self, provider: str | None = None) -> SearchBinding | None:
+        return self.search_bindings.get(provider or self.search_active or "")
+
     def to_dict(self) -> dict:
         return {
-            "schema": 2,
+            "schema": 3,
             "active": self.active,
             "bindings": {k: v.to_dict() for k, v in self.bindings.items()},
+            "search_active": self.search_active,
+            "search_bindings": {k: v.to_dict()
+                                for k, v in self.search_bindings.items()},
         }
 
 
@@ -90,6 +128,11 @@ def _meta_path(data_dir: Path) -> Path:
 def _binding_from(raw: dict) -> Binding:
     known = {f for f in Binding.__dataclass_fields__}
     return Binding(**{k: v for k, v in raw.items() if k in known})
+
+
+def _search_from(raw: dict) -> SearchBinding:
+    known = {f for f in SearchBinding.__dataclass_fields__}
+    return SearchBinding(**{k: v for k, v in raw.items() if k in known})
 
 
 def load_account(data_dir: Path) -> Account:
@@ -104,13 +147,22 @@ def load_account(data_dir: Path) -> Account:
     if not isinstance(raw, dict):
         return Account()
 
-    if raw.get("schema") == 2 or "bindings" in raw:
+    # v2 与 v3 的 AI 绑定部分格式相同；v3 只是多了 search_bindings。
+    # 老文件里没有那两个键，读出来就是空 —— 不需要专门的迁移分支。
+    if raw.get("schema") in (2, 3) or "bindings" in raw:
         bindings = {k: _binding_from(v) for k, v in (raw.get("bindings") or {}).items()
                     if isinstance(v, dict)}
         active = str(raw.get("active") or "")
         if active not in bindings:
             active = next(iter(bindings), "")
-        return Account(active=active, bindings=bindings)
+        searches = {k: _search_from(v)
+                    for k, v in (raw.get("search_bindings") or {}).items()
+                    if isinstance(v, dict)}
+        s_active = str(raw.get("search_active") or "")
+        if s_active not in searches:
+            s_active = next(iter(searches), "")
+        return Account(active=active, bindings=bindings,
+                       search_active=s_active, search_bindings=searches)
 
     # ── v1：整个文件就是一个 Binding ──
     # 老版本只存一个账号，profile 固定是 "deepseek"。原样搬进新结构，
@@ -154,6 +206,34 @@ def clear_binding(data_dir: Path, provider: str | None = None) -> None:
     acc.bindings.pop(provider, None)
     if acc.active == provider:
         acc.active = next(iter(acc.bindings), "")
+    save_account(data_dir, acc)
+
+
+# --- 搜索服务的绑定 ---------------------------------------------------------
+
+def save_search_binding(data_dir: Path, binding: SearchBinding) -> None:
+    """存一个搜索服务绑定并让它生效。"""
+    acc = load_account(data_dir)
+    key = binding.provider
+    binding.profile = search_profile(key)
+    acc.search_bindings[key] = binding
+    acc.search_active = key
+    save_account(data_dir, acc)
+
+
+def clear_search_binding(data_dir: Path, provider: str | None = None) -> None:
+    """删掉某一个搜索绑定；不指定就删当前生效的那个。
+
+    **不会碰 AI 绑定。** 解绑搜索服务之后引导式选型退到白名单站点那一级，
+    其余功能一切照常。
+    """
+    acc = load_account(data_dir)
+    target = provider or acc.search_active
+    if not target:
+        return
+    acc.search_bindings.pop(target, None)
+    if acc.search_active == target:
+        acc.search_active = next(iter(acc.search_bindings), "")
     save_account(data_dir, acc)
 
 

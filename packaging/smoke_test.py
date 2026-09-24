@@ -31,6 +31,75 @@ GOLDEN = {
     "hours_per_day": "h_le_10",
 }
 
+# 冒烟用的自建物料。刻意写成完整的两段：**这就是引导式保存下来的形状**，
+# 包括那条依据（basis）—— 它是引导式与旧版「AI 一次性起草」最大的区别。
+SMOKE_SPEC = """material: smoke_probe_material
+name_zh: 冒烟测试物料
+provenance: user_guided
+generated_by: smoke-test
+basis:
+  claim: 冒烟测试用的假依据（GB/T 0000）
+  status: self_declared
+  confirmed_at: '2026-01-01T00:00:00+00:00'
+  confirmed_by: user
+  urls: []
+notes:
+  - 冒烟测试用，跑完即删
+inputs:
+  - id: F
+    name_zh: 载荷
+    unit: N
+    required: true
+    domain: {min: 1, max: 1000}
+    hint: 冒烟测试
+  - id: A
+    name_zh: 许用面积
+    unit: mm2
+    required: true
+    domain: {min: 1, max: 1000}
+    hint: 冒烟测试
+steps:
+  - id: s
+    kind: formula
+    name_zh: 算个数
+    expr: F * 2
+    unit: mm2
+    source: {ref: 冒烟测试}
+    outputs: [s]
+  - id: c
+    kind: check
+    name_zh: 校核
+    value: s
+    op: <=
+    limit: A
+    unit: mm2
+    on_fail: 加大面积
+    source: {ref: 冒烟测试}
+result:
+  - label: 结果
+    value: '{s}'
+    unit: mm2
+"""
+
+
+def _user_workflow_dir():
+    """打包态的用户工作流目录。
+
+    **打包态 MDS_DATA_DIR 不是环境变量**，是从 LOCALAPPDATA 算出来的——
+    这正是上一轮踩到的那个 bug 的现场（引擎读不到它，草稿存得进去却看不见）。
+    这里按服务端同一套规则算一遍。
+    """
+    import os
+
+    raw = os.environ.get("MDS_DATA_DIR")
+    if raw:
+        return Path(raw).expanduser() / "workflows"
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_DATA_HOME")
+    if not base:
+        return None
+    return Path(base) / "MDS" / "workflows"
+
+
 _passed = 0
 _failed: list[str] = []
 
@@ -168,34 +237,32 @@ def main() -> int:
 
         # --- 用户自建物料：打包态最容易出问题的一处 ---
         # 随包知识库是只读的（上一条刚验过），但**用户目录必须是可写的**，
-        # 否则 AI 起草的物料存不下来，"下次离线也能选"就是句空话。
+        # 否则引导式自建的物料存不下来，"下次离线也能选"就是句空话。
         # 这两件事共用一套路径解析，源码态两者都可写，测不出这个区别。
-        print("\n用户自建物料（AI 起草后保存的那条路）")
-        draft = {
-            "material": "smoke_probe_material", "name_zh": "冒烟测试物料",
-            "notes": ["冒烟测试用，跑完即删"],
-            "inputs": [{"id": "F", "name_zh": "载荷", "unit": "N", "required": True,
-                        "domain": {"min": 1, "max": 1000}, "hint": "冒烟测试"},
-                       {"id": "A", "name_zh": "许用面积", "unit": "mm2", "required": True,
-                        "domain": {"min": 1, "max": 1000}, "hint": "冒烟测试"}],
-            "steps": [
-                {"id": "s", "kind": "formula", "name_zh": "算个数", "expr": "F * 2",
-                 "unit": "mm2", "source": {"ref": "冒烟测试"}, "outputs": ["s"]},
-                {"id": "c", "kind": "check", "name_zh": "校核", "value": "s",
-                 "op": "<=", "limit": "A", "unit": "mm2", "on_fail": "加大面积",
-                 "source": {"ref": "冒烟测试"}}],
-            "result": [{"label": "结果", "value": "{s}", "unit": "mm2"}],
-        }
-        status, body = _json(f"{base}/api/ai/save-draft", {"spec": draft})
-        check(status == 200, "用户目录可写（随包只读不影响它）", str(body)[:120])
+        #
+        # 这里直接往用户目录里放一份规格，而不是走引导式的接口——
+        # 引导式阶段 1 要真的联网取证，打包冒烟不该依赖网络和用户的 key。
+        # 要验的那个打包态风险（引擎看不看得见用户目录）这样验得更直接。
+        print("\n用户自建物料（引导式保存之后的那条路）")
+        user_dir = _user_workflow_dir()
+        check(user_dir is not None, "算得出用户数据目录",
+              "LOCALAPPDATA 不在环境里？")
+        probe = user_dir / "smoke_probe_material.yaml" if user_dir else None
+        if probe is not None:
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.write_text(SMOKE_SPEC, encoding="utf-8")
+        check(probe is not None and probe.exists(),
+              "用户目录可写（随包只读不影响它）")
 
+        # 刚落盘的物料要立刻可见 —— 打包态 MDS_DATA_DIR 不是环境变量，
+        # 而是从 LOCALAPPDATA 算出来的，引擎读不到它的话这条就会红。
         _, body = _json(f"{base}/api/materials")
         mine = next((m for m in body if m.get("id") == "smoke_probe_material"), None)
         check(mine is not None and mine.get("status") == "ready",
-              "保存后立刻出现在物料列表里")
-        check(bool(mine) and mine.get("provenance") == "ai_generated"
+              "放进用户目录后引擎立刻看得见（打包态最容易漏的一条）")
+        check(bool(mine) and mine.get("provenance") == "user_guided"
               and mine.get("confidence") == "unknown",
-              "标成 AI 起草 + 最低置信度（它确实没有任何信源）")
+              "标成引导自建 + 最低置信度")
 
         status, body = _json(f"{base}/api/selection/run", {
             "material": "smoke_probe_material", "save": False,
@@ -203,15 +270,31 @@ def main() -> int:
         trace = body.get("trace", {})
         check(status == 200 and trace.get("status") == "ok",
               "自建物料能真的跑起来", str(body)[:120])
-        check(any("AI 起草" in w for w in trace.get("warnings", [])),
-              "结果里带着「AI 起草、未经核验」的警告")
+        warn = " ".join(trace.get("warnings", []))
+        check("引导" in warn and "不等于经过核验" in warn,
+              "结果里带着「依据由你确认、但不等于核验」的警告", warn[:120])
 
-        # 闸门在打包态同样有效：带数据表的草稿必须被拒
-        bad = dict(draft, material="smoke_probe_bad")
-        bad["steps"] = [{"id": "t", "kind": "table_lookup", "name_zh": "查表",
-                         "table": "nope", "key": "a.b", "outputs": ["t"]}] + draft["steps"]
-        status, _ = _json(f"{base}/api/ai/save-draft", {"spec": bad})
-        check(status == 422, "引用数据表的草稿被拒（闸门在打包态同样有效）", str(status))
+        # 引导式在两种账号状态下都要**如实响应**，而不是 500。
+        # 这台机器绑没绑账号不该决定这条断言成立与否——冒烟测的是打包产物，
+        # 不是开发机的账号状态。
+        status, body = _json(f"{base}/api/guided", {"material_text": "冒烟测试"})
+        if status == 409:
+            check("联网" in str(body),
+                  "未绑定时引导式如实关闭（409 + 说明原因）", str(body)[:100])
+        else:
+            ok = (status == 200 and body.get("stage") == "new"
+                  and not body.get("can_run"))
+            check(ok, "已绑定时引导会话开得起来，且一上来什么都还不能做",
+                  f"{status} {str(body)[:100]}")
+            # 冒烟不该在用户的会话列表里留东西
+            if body.get("id"):
+                _json(f"{base}/api/guided/{body['id']}", method="DELETE")
+
+        # 新模块真的被打进包了：取证层与检索层的登记表读得出来
+        status, body = _json(f"{base}/api/account/search")
+        sites = {w["domain"]: w["tier"] for w in body.get("whitelist", [])}
+        check(status == 200 and sites.get("mechtool.cn") == "trusted",
+              "取证与检索模块随包可用（白名单读得出来）", str(body)[:120])
 
         status, _ = _json(f"{base}/api/ai/saved/smoke_probe_material", method="DELETE")
         check(status == 200, "自建物料可以删除（跑完清理干净）", str(status))

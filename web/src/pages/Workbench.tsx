@@ -16,12 +16,18 @@ interface Props {
   /** 首页意图解析识别出来的参数，用于预填阶段 2 */
   seed?: Record<string, unknown> | null
   mode: string
+  /**
+   * 引导式选型的会话 id。非空时这份工作流**还没落盘**：
+   * 规格从会话里取、计算也走会话的接口。这是为了守住"跑通了才存"——
+   * 一份没跑通的流程存下来，只会在物料列表里留一个点进去就报错的入口。
+   */
+  guidedSid?: string | null
   onGoSettings: () => void
   onGoKnowledge: () => void
 }
 
 export default function Workbench({ material, initialProject, health, seed, mode,
-                                   onGoSettings, onGoKnowledge }: Props) {
+                                   guidedSid, onGoSettings, onGoKnowledge }: Props) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [choices, setChoices] = useState<Record<string, string>>({})
@@ -37,7 +43,7 @@ export default function Workbench({ material, initialProject, health, seed, mode
   // 切换物料：拉取工作流定义，并用上次的项目值（如果有）预填
   useEffect(() => {
     setWorkflow(null); setTrace(null); setProcure(null); setError(null)
-    api.workflow(material)
+    ;(guidedSid ? api.guidedWorkflow(guidedSid) : api.workflow(material))
       .then(wf => {
         setWorkflow(wf)
         const init: Record<string, string> = {}
@@ -59,18 +65,22 @@ export default function Workbench({ material, initialProject, health, seed, mode
         }
       })
       .catch((e: RequestError) => setError(e.detail))
-  }, [material, initialProject, seed])
+  }, [material, initialProject, seed, guidedSid])
 
   const execute = useCallback(async (nextChoices?: Record<string, string>) => {
     setRunning(true); setError(null)
     const payload = nextChoices ?? choices
     try {
-      const res = await api.run({
-        material,
-        values: coerce(values, workflow),
-        choices: payload,
-        project_id: projectId,
-      })
+      // 引导式的规格还没落盘，按 id 加载不到它，所以走会话自己的执行接口。
+      // **两条路跑的是同一个 runner**，阶段 3~6 的行为逐字相同。
+      const res = guidedSid
+        ? await api.guidedRun(guidedSid, coerce(values, workflow), payload)
+        : await api.run({
+            material,
+            values: coerce(values, workflow),
+            choices: payload,
+            project_id: projectId,
+          })
       setTrace(res.trace)
       setProcure(res.procure)
       setProjectId(res.project_id)
@@ -83,7 +93,7 @@ export default function Workbench({ material, initialProject, health, seed, mode
     } finally {
       setRunning(false)
     }
-  }, [material, values, choices, projectId, workflow])
+  }, [material, values, choices, projectId, workflow, guidedSid])
 
   const onChoose = useCallback((stepId: string, value: string) => {
     const next = { ...choices, [stepId]: value }
@@ -129,7 +139,7 @@ export default function Workbench({ material, initialProject, health, seed, mode
         {stage === 4 && <Stage4 trace={trace} onBack={() => setStage(3)} onNext={() => setStage(5)}
                                 onFix={() => setStage(2)} />}
         {stage === 5 && (
-          <Stage5 trace={trace} material={material}
+          <Stage5 trace={trace} material={material} guidedSid={guidedSid}
                   values={coerce(values, workflow)} choices={choices}
                   onBack={() => setStage(4)} onNext={() => setStage(6)} />
         )}
@@ -166,15 +176,28 @@ function coerce(values: Record<string, string>, wf: Workflow | null): Record<str
 function Stage0({ wf, onNext }: { wf: Workflow; onNext: () => void }) {
   return (
     <Section title="阶段 0 · 物料识别" sub="确认要选的物料，以及将依据哪份标准">
+      {wf.provenance === 'user_guided' && (
+        <div className="mb-4">
+          <Alert tone="warn" title="这份选型流程是在线引导下组装的，尚未核验">
+            依据由你确认、整套公式由你过目确认，数值全部由你填写或由引擎算出——
+            <b>AI 没有提供任何数值</b>。
+            <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
+              但这<b>不等于经过核验</b>：取证只证明那份文件里确实有这个标准号，
+              不证明这个公式适用于你的工况。
+              引导模型：<span className="num">{wf.generated_by || '未知'}</span>。
+              正式定稿前请对照依据原文复核。
+            </div>
+          </Alert>
+        </div>
+      )}
       {wf.provenance === 'ai_generated' && (
         <div className="mb-4">
-          <Alert tone="err" title="这份选型流程由 AI 起草，未经任何核验">
-            引擎只保证它<b>格式合法</b>、且<b>没有携带编造的数据表</b>——
-            所有需要查手册的量都做成了输入项，由你自己填。
+          <Alert tone="err" title="这是旧版「AI 一次性起草」留下的流程，没有任何依据">
+            它没有经过依据检索与取证，也没有人核对过公式——那一版的门槛太低，
+            已经不再提供。
             <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
-              但<b>没有人核对过这些公式是否适用于你的工况</b>。
-              起草模型：<span className="num">{wf.generated_by || '未知'}</span>。
-              正式设计前请对照手册逐项确认，<b>不要拿这份结果直接定稿</b>。
+              建议回首页用<b>引导式选型</b>重做一遍：那条路会先检索并取证依据，
+              再让你确认整套公式。<b>不要拿这份结果定稿。</b>
             </div>
           </Alert>
         </div>
@@ -185,7 +208,7 @@ function Stage0({ wf, onNext }: { wf: Workflow; onNext: () => void }) {
           <Field label="主导标准">{wf.standard || '—'}</Field>
           <Field label="可执行规格">
             <span className="num">
-              {wf.provenance === 'ai_generated' ? '用户目录/' : ''}workflows/{wf.material}.yaml
+              {wf.provenance === 'builtin' ? '' : '用户目录/'}workflows/{wf.material}.yaml
             </span>
           </Field>
           <Field label="人读文档"><span className="num">{wf.workflow_doc || '—'}</span></Field>
@@ -476,9 +499,10 @@ function Stage4({ trace, onBack, onNext, onFix }: {
 
 // ── 阶段 5：结果输出 ───────────────────────────────────────────────
 
-function Stage5({ trace, material, values, choices, onBack, onNext }: {
+function Stage5({ trace, material, guidedSid, values, choices, onBack, onNext }: {
   trace: Trace | null
   material: string
+  guidedSid?: string | null
   values: Record<string, unknown>
   choices: Record<string, string>
   onBack: () => void
@@ -486,15 +510,34 @@ function Stage5({ trace, material, values, choices, onBack, onNext }: {
 }) {
   const [exporting, setExporting] = useState('')
   const [exportErr, setExportErr] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [savedAs, setSavedAs] = useState('')
+  const [saveErr, setSaveErr] = useState('')
+
+  // 导出接口收的是物料 id，服务端自己重跑一遍引擎再渲染——
+  // 引导出来的规格在保存之前还不在磁盘上，那条路走不通。如实说明，不给假按钮。
+  const canExport = !guidedSid || !!savedAs
 
   const download = async (fmt: 'pdf' | 'xlsx') => {
     setExporting(fmt); setExportErr('')
     try {
-      const { blob, filename } = await api.exportReport(fmt, { material, values, choices })
+      const { blob, filename } = await api.exportReport(
+        fmt, { material: savedAs || material, values, choices })
       saveBlob(blob, filename)
     } catch (e) {
       setExportErr((e as RequestError).message)
     } finally { setExporting('') }
+  }
+
+  const save = async () => {
+    if (!guidedSid) return
+    setSaving(true); setSaveErr('')
+    try {
+      const out = await api.guidedSave(guidedSid)
+      setSavedAs(out.material)
+    } catch (e) {
+      setSaveErr((e as RequestError).message)
+    } finally { setSaving(false) }
   }
 
   if (!trace || trace.result.length === 0) {
@@ -508,17 +551,44 @@ function Stage5({ trace, material, values, choices, onBack, onNext }: {
     <Section title="阶段 5 · 结果输出"
              right={
                <div className="flex gap-2">
-                 <button className="btn" disabled={!!exporting}
+                 <button className="btn" disabled={!!exporting || !canExport}
+                         title={canExport ? '' : '先保存这个物料，导出接口才能按 id 重跑一遍引擎'}
                          onClick={() => void download('pdf')}>
                    {exporting === 'pdf' ? '生成中…' : '导出 PDF'}
                  </button>
-                 <button className="btn" disabled={!!exporting}
+                 <button className="btn" disabled={!!exporting || !canExport}
+                         title={canExport ? '' : '先保存这个物料，导出接口才能按 id 重跑一遍引擎'}
                          onClick={() => void download('xlsx')}>
                    {exporting === 'xlsx' ? '生成中…' : '导出 Excel'}
                  </button>
                </div>
              }>
       {exportErr && <div className="mb-3"><Alert tone="err" title="导出失败">{exportErr}</Alert></div>}
+      {guidedSid && (
+        <div className="mb-4">
+          {savedAs ? (
+            <Alert tone="ok" title="已保存到用户目录">
+              下次<b>离线也能选</b>「{trace?.name_zh || savedAs}」了。
+              它在物料列表里会标成 🔴 未经核验——那是准确的现状：
+              依据是真的、可点开的，但没有人拿标准原件逐格核对过。
+            </Alert>
+          ) : (
+            <Alert tone="info" title="跑通了，要把这个物料留下来吗？">
+              保存之后它会进入你的物料列表，<b>下次离线也能选</b>；
+              流程与依据一并存进用户目录，不会混进随包数据。
+              <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
+                刻意不自动保存：一份没跑通的流程存下来，
+                只会在物料列表里留一个点进去就报错的入口。
+              </div>
+              <button className="btn btn-p mt-3" disabled={saving}
+                      onClick={() => void save()}>
+                {saving ? '保存中…' : '保存这个物料 →'}
+              </button>
+            </Alert>
+          )}
+          {saveErr && <div className="mt-2"><Alert tone="err" title="保存失败">{saveErr}</Alert></div>}
+        </div>
+      )}
       <div className="card p-4 mb-4">
         <div className="text-[12px] font-medium mb-2" style={{ color: '#93c5fd' }}>表 1 · 计算过程汇总</div>
         <div className="overflow-x-auto scroll">

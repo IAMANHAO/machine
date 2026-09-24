@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, RequestError } from '../api'
 import { Alert, Badge, Spinner } from '../components/ui'
 import BindDialog from '../components/BindDialog'
-import type { AccountStatus, Balance, Health } from '../types'
+import type { AccountStatus, Balance, Health, SearchStatus } from '../types'
 
 export default function Settings({ health, onChanged }: {
   health: Health | null
   onChanged?: () => void
 }) {
   const [acc, setAcc] = useState<AccountStatus | null>(null)
+  const [search, setSearch] = useState<SearchStatus | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [binding, setBinding] = useState(false)
   const [busy, setBusy] = useState('')
@@ -21,6 +22,7 @@ export default function Settings({ health, onChanged }: {
       if (a.bound) api.balance().then(setBalance).catch(() => setBalance(null))
       else setBalance(null)
     }).catch((e: RequestError) => setErr(e.message))
+    api.searchStatus().then(setSearch).catch(() => setSearch(null))
   }, [])
 
   useEffect(load, [load])
@@ -186,6 +188,19 @@ export default function Settings({ health, onChanged }: {
           </div>
         </div>
 
+        {/* ── 搜索服务（引导式阶段 1 的检索供能）── */}
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="text-[13px] font-medium">搜索服务</div>
+            <Badge kind={search?.bound ? 'ok' : 'warn'}>
+              {search?.bound ? '已绑定' : '未绑定'}
+            </Badge>
+          </div>
+          {search ? (
+            <SearchCard s={search} onChanged={after} onError={setErr} />
+          ) : <Spinner label="正在读取搜索服务状态…" />}
+        </div>
+
         {/* ── 引擎与数据 ── */}
         <div className="card p-5">
           <div className="text-[13px] font-medium mb-3">引擎与数据</div>
@@ -215,9 +230,16 @@ export default function Settings({ health, onChanged }: {
             <div className="card2 p-2">分步计算 · 校核 · 结果表 · 信源清单</div>
             <div className="card2 p-2">采购关键词与链接生成 · 知识库自检与补录</div>
             <p className="pt-1">
-              绑定账号只增强三件事：把整句工况解析得更准、为缺失参数给建议值与理由、
-              把某一步用白话讲清楚。这三件事都不参与数值计算——
-              AI 给的参数会走与手工输入完全相同的校验通道。
+              绑定账号增强四件事：把整句工况解析得更准、为缺失参数给建议值与理由、
+              把某一步用白话讲清楚，以及<b style={{ color: 'var(--txt)' }}>引导式选型</b>
+              （知识库里没有的物料，联网检索并取证依据后一步步引导你选完）。
+              这四件事<b style={{ color: 'var(--txt)' }}>都不参与数值计算</b>——
+              AI 给的参数会走与手工输入完全相同的校验通道，
+              引导出来的公式里也不许出现编造的系数。
+            </p>
+            <p>
+              引导式是唯一没有离线降级方案的一项：阶段 1 要真的去抓页面核对标准号，
+              离线做不到。但引导出来的物料<b style={{ color: 'var(--txt)' }}>保存之后离线照常可选</b>。
             </p>
           </div>
         </div>
@@ -304,5 +326,117 @@ function NumField({ label, value, onChange }: {
       <input className="inp num" value={value} inputMode="numeric"
              onChange={e => onChange(Number(e.target.value) || 0)} />
     </div>
+  )
+}
+
+
+/**
+ * 搜索服务的绑定 —— 引导式选型阶段 1 要真的联网检索依据。
+ *
+ * 与 AI 绑定**完全独立**：解绑搜索服务不动 AI 账号。没绑也能用，
+ * 那时只在白名单站点的本地目录里找（冷门物料可能找不到），如实显示这一点。
+ */
+function SearchCard({ s, onChanged, onError }: {
+  s: SearchStatus
+  onChanged: (m: string) => void
+  onError: (m: string) => void
+}) {
+  const [pick, setPick] = useState(s.providers[0]?.id ?? '')
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState('')
+  const spec = s.providers.find(p => p.id === pick)
+
+  const bind = async () => {
+    setBusy('bind')
+    try {
+      const out = await api.bindSearch(key.trim(), pick)
+      setKey('')
+      onChanged(`已绑定 ${out.name_zh}，验证时搜到 ${out.binding.last_hits} 条结果`)
+    } catch (e) { onError((e as RequestError).message) } finally { setBusy('') }
+  }
+
+  const drop = async (provider: string) => {
+    setBusy('unbind')
+    try {
+      await api.unbindSearch(provider)
+      onChanged('已解绑搜索服务，凭据已从系统凭据库删除。引导式会退到白名单站点那一级')
+    } catch (e) { onError((e as RequestError).message) } finally { setBusy('') }
+  }
+
+  return (
+    <>
+      <Alert tone="info" title="本软件同样不自带搜索 key">{s.notice}</Alert>
+
+      <div className="mt-3 text-[12px]">
+        <Row label="阶段 1 实际走哪一级">
+          <span className={`badge ${s.rung === 'binding' ? 'b-ok' : 'b-warn'}`}>
+            {s.rung === 'binding' ? '你绑定的搜索服务' : '白名单站内目录'}
+          </span>
+        </Row>
+      </div>
+
+      {s.bindings.length > 0 && (
+        <div className="mt-3 space-y-2 text-[13px]">
+          {s.bindings.map(b => (
+            <div key={b.provider} className="card2 p-2 flex items-center justify-between gap-2">
+              <span>
+                {b.name_zh}　<span className="num text-[11px]">{b.label}</span>
+                {!b.key_present && <span className="badge b-err ml-1.5">凭据丢失</span>}
+              </span>
+              <button className="btn text-[12px] py-1 px-2" disabled={busy === 'unbind'}
+                      onClick={() => void drop(b.provider)}>解绑</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 space-y-2">
+        <div className="text-[12px]" style={{ color: 'var(--sub)' }}>绑定一家（三家都有免费额度）</div>
+        <div className="flex flex-wrap gap-2">
+          {s.providers.map(p => (
+            <button key={p.id} className={'btn text-[12px] py-1 px-2' + (pick === p.id ? ' btn-p' : '')}
+                    onClick={() => setPick(p.id)}>{p.name_zh}</button>
+          ))}
+        </div>
+        {spec && (
+          <div className="text-[11px] card2 p-2" style={{ color: 'var(--sub)' }}>
+            {spec.notes}
+            <div className="mt-1">
+              到{' '}
+              <a href={spec.console_url} target="_blank" rel="noreferrer"
+                 className="underline" style={{ color: '#60a5fa' }}>{spec.console_url}</a>{' '}
+              创建 key（环境变量名通常是 <span className="num">{spec.key_env_hint}</span>）。
+              <b>绑定验证会真的发一次查询，消耗一次配额</b>——三家都没有免费的验证接口。
+            </div>
+          </div>
+        )}
+        <input className="inp num" type="password" value={key} placeholder="粘贴搜索服务的 API Key"
+               onChange={e => setKey(e.target.value)} />
+        <button className="btn btn-p w-full" disabled={!key.trim() || !!busy}
+                onClick={() => void bind()}>
+          {busy === 'bind' ? '验证中…' : '绑定并验证 →'}
+        </button>
+      </div>
+
+      <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--line)' }}>
+        <div className="text-[12px] mb-2" style={{ color: 'var(--sub)' }}>
+          白名单站点（不绑搜索服务时就在这些站的本地目录里找）
+        </div>
+        {s.whitelist.map(w => (
+          <div key={w.domain} className="text-[11px] mb-1.5" style={{ color: 'var(--sub)' }}>
+            <span className="num">{w.domain}</span>{' '}
+            <Badge kind={w.tier === 'trusted' ? 'ok' : 'info'}>
+              {w.tier === 'trusted' ? '可信' : '普通'}
+            </Badge>{' '}
+            {w.name_zh}
+          </div>
+        ))}
+        <div className="text-[11px] mt-2" style={{ color: 'var(--sub)' }}>
+          标「可信」的站点，单独一处就够支撑一条依据往下走；
+          但<b style={{ color: 'var(--txt)' }}>仍然不会自动标绿</b>——
+          绿灯只给两个独立信源相互印证。
+        </div>
+      </div>
+    </>
   )
 }

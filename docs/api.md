@@ -182,7 +182,7 @@
 | `POST /api/ai/intent` | 降级为关键词匹配，`source: "offline"` |
 | `POST /api/ai/suggest` | 降级为规格里的 `typical` 值 |
 | `POST /api/ai/explain` | **409**（没有诚实的降级方案） |
-| `POST /api/ai/draft-workflow` | **409**（离线造不出流程，只能如实说） |
+| `POST /api/guided/*` | **409**（阶段 1 要真的联网取证，没有诚实的降级方案） |
 
 `suggest` 的返回分三组：
 
@@ -195,34 +195,107 @@
 **`rejected` 是结构性保证**：每个建议值在返回前都跑过 `mds.runner._coerce`——
 与用户手输完全同一条通道。调用方拿不到一个绕过校验的数。
 
-### 知识库里没有的物料
+### 知识库里没有的物料：引导式选型
+
+按 SKILL.md 的阶段 0~6 一段一段推进，**每一段都由用户拍板**。
+（旧的 `POST /api/ai/draft-workflow` 与 `/save-draft` 已删除——
+那条路的门槛只有"格式合法 + 不引用数据表"，拦不住编造的公式。）
 
 | 端点 | 说明 |
 |---|---|
-| `POST /api/ai/draft-workflow` | 体 `{material_text}` → 起草一份可执行流程。**返回草稿，还没落盘** |
-| `POST /api/ai/save-draft` | 体 `{spec}` → 存进用户目录，下次离线也能选 |
-| `DELETE /api/ai/saved/{material}` | 删掉一个已保存的生成物料（随包物料删不掉） |
+| `GET /api/guided` | 没走完的会话（用户去翻手册、隔天回来要能接着走） |
+| `POST /api/guided` | 体 `{material_text}` → 开一个会话。**此时还没检索，没花 token** |
+| `GET /api/guided/{sid}` | 会话视图，含 `can_*`（前端据此置灰按钮） |
+| `POST /api/guided/{sid}/research` | 阶段 1：检索 → AI 挑候选 → **服务端逐条取证** |
+| `POST /api/guided/{sid}/basis` | 体 `{basis_id}` 或 `{custom}` → 用户拍板选一条依据 |
+| `POST /api/guided/{sid}/inputs` | 阶段 2：列出要问的参数（分轮 ≤6 项） |
+| `POST /api/guided/{sid}/inputs/confirm` | 体 `{inputs?}` → 确认（可改过） |
+| `POST /api/guided/{sid}/steps` | 阶段 3/4：整套计算与校核 |
+| `POST /api/guided/{sid}/steps/confirm` | 体 `{confirmed: true}` → **一次性过目确认** |
+| `GET /api/guided/{sid}/workflow` | 阶段 2 表单，形状与 `/api/workflow/{m}` 完全相同 |
+| `POST /api/guided/{sid}/run` | 体 `{values, choices}` → **落盘之前也能跑**（同一个 runner） |
+| `POST /api/guided/{sid}/save` | 存进用户目录，下次离线也能选 |
+| `DELETE /api/guided/{sid}` | 丢弃会话 |
+| `DELETE /api/ai/saved/{material}` | 删掉一个已保存的自建物料（随包物料删不掉） |
 
-起草要过**两道闸门**：格式合法（`spec.parse()`，与随包工作流同一个解析器）、
-且**不引用任何数据表**。没过返回 **422**，`detail.reasons` 逐条说明哪里不合规：
+#### 状态码说的是什么
+
+**顺序不对是 409，不是 400** —— 请求本身没毛病，是流程状态不允许：
 
 ```json
-{ "detail": { "error": "draft_rejected",
-              "message": "AI 起草的流程没通过合规检查（2 处）。…",
-              "reasons": ["步骤 K_A 用了 table_lookup —— 新物料没有数据表…",
-                          "步骤 A_req 没有写 source.ref —— 每个公式都要说明出处"] } }
+{ "detail": { "error": "依据还没确认。阶段 1 必须先定下依据——后面的公式都要对着它核对。",
+              "kind": "out_of_order", "stage": "basis" } }
 ```
 
-`/api/materials` 与 `/api/workflow/{m}` 都带 `provenance`
-（`builtin` / `user` / `ai_generated`）。AI 起草的物料 `confidence` 恒为 `unknown`。
+| 情况 | 码 |
+|---|---|
+| 依据/参数/公式没确认就往下走 | 409 `out_of_order` / `not_confirmed` |
+| 未绑定账号或离线 | 409 `not_bound` |
+| 选了一条取证不通过的依据 | 422 `unverified_basis` |
+| 检索三条路都没结果 | 422 `no_search_results` |
+| 模型连着几轮都没过闸门 | 422 `guidance_rejected` |
+| 超出用量上限 | 429 |
+
+**闸门在后端，不在前端按钮的置灰状态上。** 前端的 `can_*` 只是提示；
+把闸门放在前端等于没有闸门，curl 一下就绕过去了。
+
+#### 模型不合规时的返回
+
+不是直接甩给用户——服务端先把逐条原因**退回给模型让它改**（最多 2 轮），
+改不好才返回 422，并把每一轮都带回来：
+
+```json
+{ "detail": {
+    "error": "guidance_rejected", "stage": "steps",
+    "message": "模型在这一步上连着 3 次都没能给出合规的输出。…",
+    "reasons": ["步骤 sigma 的 expr 里出现了字面量 1.25。公式里只允许单位换算因子…"],
+    "repair_log": [ { "attempt": 1, "reasons": ["…"], "passed": false,
+                      "usage": { "total_tokens": 1520 } } ] } }
+```
+
+#### 取证结果长什么样
+
+每条候选依据都带 `evidence`：
+
+```json
+{ "id": "b1", "claim": "GB/T 1095-2003《普通型 平键》表 1",
+  "urls": ["https://www.mechtool.cn/key.html"],
+  "dropped_urls": ["https://made-up.example/x"],
+  "evidence": { "status": "trusted", "usable": true,
+                "domains": ["mechtool.cn"],
+                "hits": [ { "url": "…", "title": "…", "tier": "trusted",
+                            "fingerprint": "a1b2c3d4e5f6" } ],
+                "misses": [], "failures": [] } }
+```
+
+`status` 五档：`cross_checked` / `trusted` / `single_source` /
+`unverified`（**选不了**）/ `unverifiable_claim`。
+`dropped_urls` 是被剔除的引用——不在检索结果集里，即模型凭记忆编的。
+
+#### 搜索服务的绑定
+
+与 AI 绑定**完全独立**，凭据走同一个系统凭据库。
+
+| 端点 | 说明 |
+|---|---|
+| `GET /api/account/search` | 状态 + 可绑服务商 + 白名单站点 + `rung`（实际会走哪一级） |
+| `POST /api/account/search/bind` | 体 `{api_key, provider}`。**验证会真的发一次查询，消耗一次配额** |
+| `POST /api/account/search/activate` | 切换生效的那家，不动凭据 |
+| `DELETE /api/account/search` | 解绑（**不动 AI 账号**） |
+
+#### 物料出身
+
+`/api/materials` 与 `/api/workflow/{m}` 都带 `provenance`：
+`builtin`（随包）/ `user`（手写 YAML）/ `user_guided`（引导式）/
+`ai_generated`（旧版起草，只读兼容）。后两者 `confidence` 恒为 `unknown`。
 
 `/api/ai/intent` 认不出物料时不再是死胡同，会带回：
 
 ```json
-{ "material": null, "unknown_material": "磁吸铁片", "can_draft": true }
+{ "material": null, "unknown_material": "磁吸铁片", "can_guide": true }
 ```
 
-离线时 `can_draft` 恒为 `false`——起草确实需要在线，不给点了没反应的按钮。
+离线时 `can_guide` 恒为 `false`——阶段 1 要真的联网取证，不给点了没反应的按钮。
 
 ---
 
