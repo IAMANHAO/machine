@@ -5,10 +5,14 @@ import { Alert, ConfidenceBadge, StatusBadge } from './ui'
  * 阶段 3 的计算卡片。四要素缺一不可：公式、代入、结果、依据。
  * 这正是"每一次选型都能被逐行验证"落到界面上的样子。
  */
-export default function CalcCard({ step, index, onChoose }: {
+export default function CalcCard({ step, index, onChoose, onAlign, aligning }: {
   step: Step
   index: number
   onChoose?: (stepId: string, value: string) => void
+  /** 叫法对不上时，问 AI「我说的是哪一个」。未绑定账号时不传 */
+  onAlign?: (stepId: string, label: string, given: string,
+             candidates: Candidate[]) => void
+  aligning?: boolean
 }) {
   // 未执行与本分支不适用都不画卡片：前者会在阶段 3 底部统一说明，
   // 后者根本不属于这条流程
@@ -87,7 +91,9 @@ export default function CalcCard({ step, index, onChoose }: {
       )}
 
       {step.status === 'needs_choice' && step.error && (
-        <ChoicePicker stepId={step.error.step || step.id} err={step.error} onChoose={onChoose} />
+        <ChoicePicker stepId={step.error.step || step.id} label={step.name_zh}
+                      err={step.error} onChoose={onChoose}
+                      onAlign={onAlign} aligning={aligning} />
       )}
 
       {step.note && !blocked && (
@@ -107,15 +113,37 @@ function Cell({ label, children }: { label: string; children: React.ReactNode })
 }
 
 /** select 步骤：引擎给候选与理由，决策权留给人（M4 起 AI 可给推荐）。 */
-function ChoicePicker({ stepId, err, onChoose }: {
+function ChoicePicker({ stepId, label, err, onChoose, onAlign, aligning }: {
   stepId: string
-  err: { reason?: string | null; message: string; candidates?: Candidate[] }
+  label: string
+  err: {
+    reason?: string | null; message: string
+    candidates?: Candidate[]; given?: string | null
+  }
   onChoose?: (stepId: string, value: string) => void
+  onAlign?: (stepId: string, label: string, given: string,
+             candidates: Candidate[]) => void
+  aligning?: boolean
 }) {
+  // 叫法对不上（而不是「还没选」）时多给一条出路：问 AI 我说的是哪一个。
+  // 它只能在下面这些候选里指一个，指不出来就照常由你自己选。
+  const mismatched = !!err.given
   return (
     <div className="mt-1">
-      <Alert tone="warn" title="这一步需要你来决定">
+      <Alert tone="warn" title={mismatched ? '这个叫法与候选对不上' : '这一步需要你来决定'}>
         {err.reason || err.message}
+        {mismatched && onAlign && (
+          <div className="mt-2">
+            <button className="btn text-[12px] py-1 px-2.5" disabled={aligning}
+                    onClick={() => onAlign(stepId, label, String(err.given),
+                                           err.candidates || [])}>
+              {aligning ? '判断中…' : `让 AI 判断「${err.given}」是下面哪一个 →`}
+            </button>
+            <div className="text-[11px] mt-1">
+              它只能在候选里指一个，指不出来就还是由你选。
+            </div>
+          </div>
+        )}
       </Alert>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-3">
         {(err.candidates || []).map(c => (

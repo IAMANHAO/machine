@@ -103,6 +103,8 @@ export interface StepError {
   candidates?: Candidate[]
   step?: string
   reason?: string | null
+  /** 叫法对不上时，用户原本给的那个值。有它才能问"我说的是哪一个" */
+  given?: string | null
 }
 
 export interface Step {
@@ -615,6 +617,43 @@ export interface SearchStatus {
   /** 这台机器上阶段 1 实际会走哪一级 */
   rung: 'binding' | 'whitelist'
   notice: string
+}
+
+/** 参数补齐：能负责任地补的补上，补不了的问出来。 */
+export interface FillResult {
+  /** 直接写进参数表的值。**每一项都带着理由**——说不出为什么的不会出现在这里 */
+  filled: Record<string, { value: number | string; rationale: string; unit: string; name_zh: string }>
+  /** 不敢猜、必须问用户的（一次最多 3 条） */
+  questions: { id: string; ask: string; why: string }[]
+  /** 没过校验闸门、或没给理由而被丢掉的 */
+  rejected: Record<string, string>
+  still_missing: string[]
+  note: string
+  source: 'ai' | 'none'
+  usage?: Usage
+}
+
+/** 叫法对齐的结果。`value` **必然是候选里的某一个**，或 null。 */
+export interface AlignResult {
+  value: string | null
+  confidence: 'high' | 'low'
+  why: string
+  usage?: Usage
+}
+
+/** 某个参数没过校验时的改法建议。`suggestion` 自己也过了校验闸门。 */
+export interface FixAdvice {
+  param: string
+  explain: string
+  suggestion: number | string | null
+  how: string
+  ask: string
+  /** 非空 = 它给的建议值自己都没过校验，已丢弃 */
+  rejected: string
+  unit: string
+  name_zh: string
+  source: 'ai' | 'none'
+  usage?: Usage
 }
 
 export interface Suggestion {

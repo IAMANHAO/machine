@@ -101,6 +101,12 @@ class RunIn(BaseModel):
     choices: dict[str, Any] = Field(default_factory=dict)
     project_id: str | None = None
     save: bool = True
+    # 哪些参数是 AI 补的、哪些是 AI 对齐叫法后改的。
+    # **引擎不认识这两个字段**，它们只用来在结果里如实标出这些值的出身——
+    # 一个标着"AI 按常用值补的"的数不是来路不明的数；
+    # 一个混在手输里看不出区别的数才是。
+    ai_filled: dict[str, str] = Field(default_factory=dict)
+    ai_aligned: dict[str, str] = Field(default_factory=dict)
 
 
 class RunOut(BaseModel):

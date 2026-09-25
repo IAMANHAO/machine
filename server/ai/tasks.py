@@ -306,6 +306,301 @@ def _suggest_offline(spec, know, missing) -> dict:
             "note": "离线模式：仅给出规格里写明的典型值，仍需你确认。"}
 
 
+
+
+# --- 参数补齐与叫法对齐：让流程别卡住，但每个值都留下出身 ------------------
+#
+# 三条都来自同一个要求：**不要把用户堵死在一个报错上**。
+# 但"不堵死"不等于"随便放个数进去"——所以这一组接口有一条共同的约束：
+#
+#   **每一个由 AI 填进来的值，都要在界面、trace 警告与导出报告里留下出身。**
+#
+# 一个标着"AI 按常用值补的，理由：…"的数不是来路不明的数；
+# 一个混在用户手输里、看不出区别的数才是。
+
+_FILL_SYS = """你是机械设计选型助手的参数补齐模块。
+
+用户没有把参数填完就想开始计算。你的任务是**把能负责任地补的补上，
+补不了的问出来**——目标是让他能往下走，不是让他觉得你什么都知道。
+
+## 怎么分这两类
+
+- **能补**：有公认常用值或能由已填参数推出来的。例如工作温度没填、
+  而用户说的是室内输送设备，取 20~40℃ 是通行做法。
+- **要问**：不同取值会把结论带向完全不同方向的。例如"这个零件用在
+  高温炉旁边还是常温车间"——猜错一路错到底。**这类一定要问，不要猜。**
+
+宁可多问一项，也不要替他做一个会改变结论的假设。
+
+## 硬约束
+
+1. 每个补上的值都要写 `rationale`：**为什么这个数是常用值**，
+   一句话说清出处或惯例。写不出理由的，就该放进 questions 而不是 filled。
+2. 值必须落在给定的 range 内；枚举必须用给定 options 里的 value，
+   一个字都不能改。
+3. **不要碰用户已经填了的参数。**
+4. questions 一次不要超过 3 条，问最要紧的。
+
+只输出 JSON：
+
+{"filled": {"参数id": {"value": 数值或枚举value, "rationale": "为什么这么取"}},
+ "questions": [{"id": "参数id", "ask": "问用户的话（一句）",
+                "why": "为什么这个不能猜"}],
+ "note": "整体说明，可空"}"""
+
+
+def _describe_input(spec, know, i) -> dict:
+    d = {"id": i.id, "name": i.name_zh, "unit": i.unit, "type": i.type,
+         "required": i.required, "hint": i.hint}
+    if i.domain:
+        d["range"] = i.domain
+    if i.type == "enum":
+        d["options"] = [{"value": o["value"], "label": o["label"]}
+                        for o in _enum_choices_for(spec, know, i)]
+    if i.typical is not None:
+        d["typical"] = i.typical
+    return d
+
+
+def fill_params(spec, know, known: dict, provider: Provider, model: str,
+                reply: str = "", budget=None) -> dict:
+    """把缺的必填参数补齐；补不了的问出来。
+
+    与 `suggest_params` 的区别只有一处，但那一处是要害：
+    **这里的值是要直接写进参数表的**（用户点的就是"补齐并计算"）。
+    所以除了同一道校验闸门，还多一条：每个值都带着 `rationale` 回去，
+    并由调用方标进 origins —— 界面、trace 警告、导出报告里都看得见它是 AI 补的。
+
+    `reply` 是用户对上一轮 questions 的自由回答。带着它再问一次，
+    模型就能把原先不敢猜的那几项补上。
+    """
+    from mds.runner import _coerce
+
+    missing = [i for i in spec.inputs
+               if (i.required or i.required_when)
+               and (i.id not in known or known.get(i.id) in (None, ""))]
+    if not missing:
+        return {"filled": {}, "questions": [], "rejected": {},
+                "still_missing": [], "source": "none"}
+
+    user = (f"物料：{spec.name_zh}（依据 {spec.standard or '未标注'}）\n"
+            f"用户已经填好的参数：{json.dumps(known, ensure_ascii=False, default=str)}\n"
+            f"还缺的参数：{json.dumps([_describe_input(spec, know, i) for i in missing], ensure_ascii=False)}")
+    if reply.strip():
+        user += f"\n\n用户对上一轮提问的回答：{reply.strip()}"
+
+    if budget:
+        budget.check()
+    comp = provider.chat(
+        [{"role": "system", "content": _FILL_SYS},
+         {"role": "user", "content": user}],
+        model=model, json_mode=True,
+        max_tokens=budget.cap_tokens(1200) if budget else 1200)
+    if budget:
+        budget.record(comp.usage)
+
+    data = comp.as_json()
+    if not isinstance(data, dict):
+        raise AIError("参数补齐返回的不是一个对象", kind="bad_json")
+
+    by_id = {i.id: i for i in missing}
+    filled: dict[str, dict] = {}
+    rejected: dict[str, str] = {}
+
+    for pid, item in (data.get("filled") or {}).items():
+        idef = by_id.get(pid)
+        if idef is None:
+            rejected[pid] = "这个参数不在待补清单里（可能用户已经填了），已丢弃"
+            continue
+        value = item.get("value") if isinstance(item, dict) else item
+        try:
+            # **与用户手输完全同一条校验通道。** 过不了就不往里放。
+            _coerce(idef, value, spec, know)
+        except Exception as exc:                   # noqa: BLE001
+            rejected[pid] = f"补的值 {value!r} 没通过参数校验：{exc}"
+            continue
+        rationale = str(item.get("rationale", "")).strip() if isinstance(item, dict) else ""
+        if not rationale:
+            # 说不出为什么的数，不配直接写进参数表。
+            rejected[pid] = f"补的值 {value!r} 没有给出理由，不予采用"
+            continue
+        filled[pid] = {"value": value, "rationale": rationale,
+                       "unit": idef.unit, "name_zh": idef.name_zh}
+
+    questions = [q for q in (data.get("questions") or [])
+                 if isinstance(q, dict) and str(q.get("ask") or "").strip()][:3]
+    still = [i.id for i in missing if i.id not in filled]
+
+    return {
+        "filled": filled,
+        "questions": questions,
+        "rejected": rejected,
+        "still_missing": still,
+        "note": str(data.get("note") or ""),
+        "source": "ai",
+        "usage": comp.usage.to_dict(),
+    }
+
+
+# --- 叫法对齐 ---------------------------------------------------------------
+
+_ALIGN_SYS = """你是机械设计选型助手的**叫法对齐**模块。
+
+用户给的取值与数据表/候选里的叫法对不上。判断他说的是候选里的哪一个。
+
+## 硬约束
+
+1. **只能从给定候选里选一个**，或者回答 null。不准自己造一个值。
+2. 只做**同义/别名/牌号归类**的判断，例如"N35"→"烧结钕铁硼"、
+   "NdFeB"→"烧结钕铁硼"、"永磁铁氧体"→"铁氧体"。
+3. **拿不准就回 null。** 对齐错了比对不上更糟：对不上用户会自己重选，
+   对错了他不会发现。
+4. "其它/other/不知道"这类**没有具体所指**的输入一律回 null——
+   那不是叫法不同，那是他还没定。
+
+只输出 JSON：
+
+{"value": "候选里的某个 value，或 null",
+ "confidence": "high 或 low",
+ "why": "一句话说明为什么是它，或为什么判断不了"}"""
+
+
+def align_choice(label: str, given: Any, candidates: list, provider: Provider,
+                 model: str, budget=None) -> dict:
+    """用户给的叫法 → 候选里的哪一个。
+
+    **返回的 value 必须在候选里**，否则丢弃。这是结构性的：
+    模型不可能从这里造出一个新选项——它只能在给定的集合里指一个。
+
+    对不上不是错误，是常态（"其它"就该对不上）。所以这个函数不抛异常，
+    对不上就返回 `{"value": None}`，由调用方照常把候选摆给用户重选。
+    """
+    allowed = [str(c.get("value")) for c in candidates
+               if isinstance(c, dict) and c.get("value") is not None]
+    if not allowed:
+        return {"value": None, "confidence": "low", "why": "没有候选可对齐"}
+
+    user = (f"参数：{label}\n"
+            f"用户给的取值：{given!r}\n"
+            f"候选：{json.dumps(candidates, ensure_ascii=False)}")
+
+    if budget:
+        budget.check()
+    comp = provider.chat(
+        [{"role": "system", "content": _ALIGN_SYS},
+         {"role": "user", "content": user}],
+        model=model, json_mode=True,
+        max_tokens=budget.cap_tokens(300) if budget else 300)
+    if budget:
+        budget.record(comp.usage)
+
+    try:
+        data = comp.as_json()
+    except AIError:
+        return {"value": None, "confidence": "low", "why": "对齐模块没返回合法结果",
+                "usage": comp.usage.to_dict()}
+    if not isinstance(data, dict):
+        return {"value": None, "confidence": "low", "why": "对齐结果不是一个对象",
+                "usage": comp.usage.to_dict()}
+
+    value = data.get("value")
+    value = str(value) if value not in (None, "", "null") else None
+    if value is not None and value not in allowed:
+        # 它造了一个候选里没有的值。丢掉，当作对不上。
+        return {"value": None, "confidence": "low",
+                "why": f"模型给出的 {value!r} 不在候选里，已丢弃",
+                "usage": comp.usage.to_dict()}
+    return {
+        "value": value,
+        "confidence": str(data.get("confidence") or "low"),
+        "why": str(data.get("why") or ""),
+        "usage": comp.usage.to_dict(),
+    }
+
+
+# --- 不合理取值：给个改法，而不是把人堵在报错上 -----------------------------
+
+_FIX_SYS = """你是机械设计选型助手。用户填的某个参数没通过校验。
+
+你的任务**不是**替他改，而是让他知道该怎么改：
+
+1. 用一句话说明这个值为什么不合理（结合这个参数的物理含义，别只复述范围）
+2. 如果能从他填的其它参数推断出一个合理值，给出来并说明怎么推的
+3. 如果推不出来，就问他一句话——问到点子上，别泛泛地问"请检查输入"
+
+**不要**给一个仅仅"落在范围内"的数来敷衍。范围内的数不等于对的数。
+推不出来就老实说推不出来。
+
+只输出 JSON：
+
+{"explain": "为什么这个值不合理（一句话）",
+ "suggestion": 建议值（数字或枚举value），推不出来就 null,
+ "how": "这个建议值是怎么来的；suggestion 为 null 时写 null",
+ "ask": "要问用户的一句话，没有就空字符串"}"""
+
+
+def advise_fix(spec, know, param: str, value: Any, problem: str, known: dict,
+               provider: Provider, model: str, budget=None) -> dict:
+    """某个参数没过校验时，给一个能往下走的改法。
+
+    **建议值照样要过校验闸门**——它是建议，不是特权。
+    过不了就只把解释与提问带回去，让用户自己改。
+    """
+    from mds.runner import _coerce
+
+    idef = next((i for i in spec.inputs if i.id == param), None)
+    if idef is None:
+        return {"explain": problem, "suggestion": None, "how": "", "ask": "",
+                "source": "none"}
+
+    user = (f"物料：{spec.name_zh}\n"
+            f"出问题的参数：{json.dumps(_describe_input(spec, know, idef), ensure_ascii=False)}\n"
+            f"用户填的值：{value!r}\n"
+            f"校验给出的原因：{problem}\n"
+            f"他填的其它参数：{json.dumps(known, ensure_ascii=False, default=str)}")
+
+    if budget:
+        budget.check()
+    comp = provider.chat(
+        [{"role": "system", "content": _FIX_SYS},
+         {"role": "user", "content": user}],
+        model=model, json_mode=True,
+        max_tokens=budget.cap_tokens(500) if budget else 500)
+    if budget:
+        budget.record(comp.usage)
+
+    try:
+        data = comp.as_json()
+    except AIError:
+        return {"explain": problem, "suggestion": None, "how": "", "ask": "",
+                "source": "ai", "usage": comp.usage.to_dict()}
+    if not isinstance(data, dict):
+        data = {}
+
+    suggestion = data.get("suggestion")
+    rejected = ""
+    if suggestion not in (None, "", "null"):
+        try:
+            _coerce(idef, suggestion, spec, know)
+        except Exception as exc:                   # noqa: BLE001
+            rejected = f"它建议的 {suggestion!r} 自己也没过校验：{exc}"
+            suggestion = None
+    else:
+        suggestion = None
+
+    return {
+        "param": param,
+        "explain": str(data.get("explain") or problem),
+        "suggestion": suggestion,
+        "how": str(data.get("how") or ""),
+        "ask": str(data.get("ask") or ""),
+        "rejected": rejected,
+        "unit": idef.unit,
+        "name_zh": idef.name_zh,
+        "source": "ai",
+        "usage": comp.usage.to_dict(),
+    }
+
 # --- 阶段 3：白话解释 -------------------------------------------------------
 
 def explain(step: dict, context: dict, provider: Provider, model: str,

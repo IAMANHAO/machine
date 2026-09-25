@@ -6,7 +6,8 @@ import SidePanel from '../components/SidePanel'
 import StepNav, { stageStates } from '../components/StepNav'
 import { Alert, Badge, ConfidenceBadge, Empty, Section, Spinner } from '../components/ui'
 import type {
-  ApiError, Health, InputDef, Procure, Project, StaleSource, Trace, Workflow,
+  ApiError, Candidate, FillResult, FixAdvice, Health, InputDef, Procure, Project,
+  StaleSource, Trace, Workflow,
 } from '../types'
 
 interface Props {
@@ -39,6 +40,14 @@ export default function Workbench({ material, initialProject, health, seed, mode
   const [error, setError] = useState<ApiError | null>(null)
   // 存档之后数据表被改过的话，这份结果就不再代表当前知识库
   const [stale, setStale] = useState<StaleSource[]>([])
+  // 哪些值不是用户填的。**这两个 map 是"出身"的唯一记录**：
+  // 它们跟着 run 一起送上去，服务端据此在结果警告里如实列出来。
+  const [aiFilled, setAiFilled] = useState<Record<string, string>>({})
+  const [aiAligned, setAiAligned] = useState<Record<string, string>>({})
+  const [assist, setAssist] = useState<FillResult | null>(null)
+  const [advice, setAdvice] = useState<FixAdvice | null>(null)
+  const [busy, setBusy] = useState('')
+  const [reply, setReply] = useState('')
 
   // 切换物料：拉取工作流定义，并用上次的项目值（如果有）预填
   useEffect(() => {
@@ -52,6 +61,7 @@ export default function Workbench({ material, initialProject, health, seed, mode
           if (from !== null && from !== undefined && from !== '') init[i.id] = String(from)
         }
         setValues(init)
+        setAiFilled({}); setAiAligned({}); setAssist(null); setAdvice(null)
         setChoices((initialProject?.choices as Record<string, string>) ?? {})
         setProjectId(initialProject?.id ?? null)
         if (initialProject?.trace) {
@@ -74,12 +84,15 @@ export default function Workbench({ material, initialProject, health, seed, mode
       // 引导式的规格还没落盘，按 id 加载不到它，所以走会话自己的执行接口。
       // **两条路跑的是同一个 runner**，阶段 3~6 的行为逐字相同。
       const res = guidedSid
-        ? await api.guidedRun(guidedSid, coerce(values, workflow), payload)
+        ? await api.guidedRun(guidedSid, coerce(values, workflow), payload,
+                              aiFilled, aiAligned)
         : await api.run({
             material,
             values: coerce(values, workflow),
             choices: payload,
             project_id: projectId,
+            ai_filled: aiFilled,
+            ai_aligned: aiAligned,
           })
       setTrace(res.trace)
       setProcure(res.procure)
@@ -93,7 +106,70 @@ export default function Workbench({ material, initialProject, health, seed, mode
     } finally {
       setRunning(false)
     }
-  }, [material, values, choices, projectId, workflow, guidedSid])
+  }, [material, values, choices, projectId, workflow, guidedSid,
+      aiFilled, aiAligned])
+
+  /** 参数没填完就想算：让 AI 把能负责任地补的补上，补不了的问出来。 */
+  const fill = useCallback(async (userReply = '') => {
+    setBusy('fill'); setError(null)
+    try {
+      const out = await api.fillParams({
+        ...(guidedSid ? { session: guidedSid } : { material }),
+        known: coerce(values, workflow), reply: userReply,
+      })
+      setAssist(out)
+      if (Object.keys(out.filled).length > 0) {
+        setValues(v => {
+          const next = { ...v }
+          for (const [id, f] of Object.entries(out.filled)) next[id] = String(f.value)
+          return next
+        })
+        setAiFilled(m => {
+          const next = { ...m }
+          for (const [id, f] of Object.entries(out.filled)) next[id] = f.rationale
+          return next
+        })
+      }
+      setReply('')
+    } catch (e) {
+      setError((e as RequestError).detail)
+    } finally { setBusy('') }
+  }, [material, guidedSid, values, workflow])
+
+  /** 某个参数没过校验：问 AI 该怎么改，而不是把人堵在报错上。 */
+  const askFix = useCallback(async (param: string) => {
+    setBusy('fix')
+    try {
+      setAdvice(await api.adviseFix({
+        ...(guidedSid ? { session: guidedSid } : { material }),
+        param, value: values[param] ?? null,
+        problem: error?.message ?? '', known: coerce(values, workflow),
+      }))
+    } catch (e) {
+      setError((e as RequestError).detail)
+    } finally { setBusy('') }
+  }, [material, guidedSid, values, workflow, error])
+
+  /** 叫法对不上：问 AI 用户说的是候选里的哪一个。**只能在候选里指一个。** */
+  const align = useCallback(async (stepId: string, label: string, given: string,
+                                   candidates: Candidate[]) => {
+    setBusy('align')
+    try {
+      const out = await api.align(label, given,
+        candidates.map(c => ({ value: c.value, label: c.label })))
+      if (out.value) {
+        setAiAligned(m => ({ ...m, [stepId]: out.value as string }))
+        const next = { ...choices, [stepId]: out.value }
+        setChoices(next)
+        await execute(next)
+      } else {
+        setError({ error: 'AlignFailed',
+                   message: `AI 也判断不了「${given}」是哪一个：${out.why}　请你从候选里选一个。` })
+      }
+    } catch (e) {
+      setError((e as RequestError).detail)
+    } finally { setBusy('') }
+  }, [choices, execute])
 
   const onChoose = useCallback((stepId: string, value: string) => {
     const next = { ...choices, [stepId]: value }
@@ -132,9 +208,23 @@ export default function Workbench({ material, initialProject, health, seed, mode
         {stage === 1 && <Stage1 wf={workflow} onNext={() => setStage(2)} onGoKnowledge={onGoKnowledge} />}
         {stage === 2 && (
           <Stage2 wf={workflow} values={values} setValues={setValues}
-                  error={error} running={running} onRun={() => void execute()} />
+                  error={error} running={running} onRun={() => void execute()}
+                  aiBound={!!health?.ai_bound} aiFilled={aiFilled} busy={busy}
+                  assist={assist} advice={advice} reply={reply} setReply={setReply}
+                  onFill={r => void fill(r)} onAskFix={p => void askFix(p)}
+                  onApplyFix={(pid, v) => {
+                    // 采用建议值也要留下出身 —— 它和用户自己敲进去的不是一回事
+                    setValues(x => ({ ...x, [pid]: String(v) }))
+                    setAiFilled(m => ({ ...m, [pid]: advice?.how || 'AI 建议的改法' }))
+                    setAdvice(null); setError(null)
+                  }}
+                  onDropFilled={pid => setAiFilled(m => {
+                    const n = { ...m }; delete n[pid]; return n
+                  })} />
         )}
         {stage === 3 && <Stage3 trace={trace} onChoose={onChoose} running={running}
+                                onAlign={health?.ai_bound ? align : undefined}
+                                aligning={busy === 'align'}
                                 onBack={() => setStage(2)} onNext={() => setStage(4)} />}
         {stage === 4 && <Stage4 trace={trace} onBack={() => setStage(3)} onNext={() => setStage(5)}
                                 onFix={() => setStage(2)} />}
@@ -281,13 +371,27 @@ function Stage1({ wf, onNext, onGoKnowledge }: {
 
 // ── 阶段 2：参数引导 ───────────────────────────────────────────────
 
-function Stage2({ wf, values, setValues, error, running, onRun }: {
+function Stage2({ wf, values, setValues, error, running, onRun, aiBound, aiFilled,
+                 busy, assist, advice, reply, setReply, onFill, onAskFix,
+                 onApplyFix, onDropFilled }: {
   wf: Workflow
   values: Record<string, string>
   setValues: React.Dispatch<React.SetStateAction<Record<string, string>>>
   error: ApiError | null
   running: boolean
   onRun: () => void
+  aiBound: boolean
+  /** id → 这个值是怎么来的。有它就在字段上打标，不能让 AI 补的和手输的看起来一样 */
+  aiFilled: Record<string, string>
+  busy: string
+  assist: FillResult | null
+  advice: FixAdvice | null
+  reply: string
+  setReply: (v: string) => void
+  onFill: (reply?: string) => void
+  onAskFix: (param: string) => void
+  onApplyFix: (param: string, value: number | string) => void
+  onDropFilled: (param: string) => void
 }) {
   const set = (id: string, v: string) => setValues({ ...values, [id]: v })
 
@@ -310,15 +414,113 @@ function Stage2({ wf, values, setValues, error, running, onRun }: {
       <div className="card p-5">
         {error && (
           <div className="mb-4">
-            <Alert tone="err" title="参数有问题">{error.message}</Alert>
+            <Alert tone="err" title="参数有问题">
+              {error.message}
+              {aiBound && error.param && !advice && (
+                <div className="mt-2">
+                  <button className="btn text-[12px] py-1 px-2.5"
+                          disabled={busy === 'fix'}
+                          onClick={() => onAskFix(error.param as string)}>
+                    {busy === 'fix' ? '想办法中…' : '问问 AI 该怎么改 →'}
+                  </button>
+                </div>
+              )}
+            </Alert>
+          </div>
+        )}
+
+        {advice && (
+          <div className="mb-4">
+            <Alert tone="info" title={'关于「' + advice.name_zh + '」'}>
+              {advice.explain}
+              {advice.suggestion !== null && (
+                <div className="mt-2">
+                  建议改成 <b className="num">{String(advice.suggestion)}</b>
+                  {advice.unit ? ' ' + advice.unit : ''}
+                  {advice.how && (
+                    <div className="text-[11px] mt-1" style={{ color: 'var(--sub)' }}>
+                      怎么来的：{advice.how}
+                    </div>
+                  )}
+                  <button className="btn btn-p text-[12px] py-1 px-2.5 mt-2"
+                          onClick={() => onApplyFix(advice.param,
+                                                    advice.suggestion as number | string)}>
+                    采用这个值
+                  </button>
+                </div>
+              )}
+              {advice.rejected && (
+                <div className="mt-2 text-[11px]" style={{ color: '#fbbf24' }}>
+                  它原本还给了一个建议值，但那个值自己也没过校验，已丢弃：{advice.rejected}
+                </div>
+              )}
+              {advice.ask && (
+                <div className="mt-2 text-[12px]">它想问你：{advice.ask}</div>
+              )}
+            </Alert>
+          </div>
+        )}
+
+        {missing > 0 && aiBound && (
+          <div className="mb-4">
+            <Alert tone="info" title={'还差 ' + missing + ' 项必填参数'}>
+              可以直接点「开始计算」——缺项会被引擎挡下；
+              也可以让 AI 把<b>能负责任地补的</b>补上、<b>不敢猜的问你</b>。
+              <div className="mt-2">
+                <button className="btn text-[12px] py-1 px-2.5" disabled={busy === 'fill'}
+                        onClick={() => onFill()}>
+                  {busy === 'fill' ? '补齐中…' : '让 AI 补齐这 ' + missing + ' 项 →'}
+                </button>
+              </div>
+              <div className="mt-1.5 text-[11px]" style={{ color: 'var(--sub)' }}>
+                补进来的值会走<b>与你手输完全相同</b>的校验通道，并在字段上标出来；
+                结果与导出报告里也会逐项列明哪几个不是你填的。
+              </div>
+            </Alert>
+          </div>
+        )}
+
+        {assist && (assist.questions.length > 0
+                    || Object.keys(assist.rejected).length > 0) && (
+          <div className="mb-4">
+            <Alert tone="warn" title={assist.questions.length
+              ? '有几项它不敢替你猜' : '有几项没能补上'}>
+              {assist.questions.length > 0 && (
+                <>
+                  <ul className="ml-4 list-disc text-[12px]">
+                    {assist.questions.map(q => (
+                      <li key={q.id}>{q.ask}
+                        <span style={{ color: 'var(--sub)' }}>（{q.why}）</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2 mt-2">
+                    <input className="inp flex-1 text-[12px]" value={reply}
+                           placeholder="一句话回答上面的问题，它会据此再补一轮"
+                           onChange={e => setReply(e.target.value)}
+                           onKeyDown={e => {
+                             if (e.key === 'Enter' && reply.trim()) onFill(reply)
+                           }} />
+                    <button className="btn" disabled={busy === 'fill' || !reply.trim()}
+                            onClick={() => onFill(reply)}>回答</button>
+                  </div>
+                </>
+              )}
+              {Object.entries(assist.rejected).map(([pid, why]) => (
+                <div key={pid} className="text-[11px] mt-1.5" style={{ color: '#fbbf24' }}>
+                  <span className="num">{pid}</span>：{why}
+                </div>
+              ))}
+            </Alert>
           </div>
         )}
 
         <div className="text-[12px] font-medium mb-2" style={{ color: '#93c5fd' }}>必需参数</div>
         <div className="grid md:grid-cols-2 gap-3 mb-5">
           {required.map(i => (
-            <InputRow key={i.id} def={i} value={values[i.id] ?? ''} onChange={v => set(i.id, v)}
-                      invalid={error?.param === i.id} />
+            <InputRow key={i.id} def={i} value={values[i.id] ?? ''}
+                      onChange={v => { set(i.id, v); onDropFilled(i.id) }}
+                      invalid={error?.param === i.id} filledBy={aiFilled[i.id]} />
           ))}
         </div>
 
@@ -335,8 +537,9 @@ function Stage2({ wf, values, setValues, error, running, onRun }: {
             </div>
             <div className="grid md:grid-cols-2 gap-3 mb-5">
               {optional.map(i => (
-                <InputRow key={i.id} def={i} value={values[i.id] ?? ''} onChange={v => set(i.id, v)}
-                          invalid={error?.param === i.id} />
+                <InputRow key={i.id} def={i} value={values[i.id] ?? ''}
+                          onChange={v => { set(i.id, v); onDropFilled(i.id) }}
+                          invalid={error?.param === i.id} filledBy={aiFilled[i.id]} />
               ))}
             </div>
           </>
@@ -353,8 +556,10 @@ function Stage2({ wf, values, setValues, error, running, onRun }: {
   )
 }
 
-function InputRow({ def, value, onChange, invalid }: {
+function InputRow({ def, value, onChange, invalid, filledBy }: {
   def: InputDef; value: string; onChange: (v: string) => void; invalid?: boolean
+  /** 非空 = 这个值是 AI 补的，内容是它给的理由。**不能和手输的看起来一样。** */
+  filledBy?: string
 }) {
   const hint = [
     def.hint,
@@ -370,6 +575,10 @@ function InputRow({ def, value, onChange, invalid }: {
         <span style={{ color: 'var(--sub)' }} className="num">
           {def.id}{def.unit ? `（${def.unit}）` : ''}
         </span>
+        {filledBy && (
+          <span className="badge b-warn ml-1.5" title={'AI 补的：' + filledBy}
+                style={{ fontSize: 10 }}>AI 补的</span>
+        )}
       </label>
       {def.type === 'enum' ? (
         <select className={`inp ${invalid ? 'err' : ''}`} value={value}
@@ -382,6 +591,12 @@ function InputRow({ def, value, onChange, invalid }: {
                placeholder={def.default != null ? `默认 ${def.default}` : '请输入'}
                onChange={e => onChange(e.target.value)} />
       )}
+      {filledBy && (
+        <div className="text-[11px] mt-1" style={{ color: '#fbbf24' }}>
+          AI 补的：{filledBy}
+          <span style={{ color: 'var(--sub)' }}>　改一下就恢复成你自己的值</span>
+        </div>
+      )}
       {hint && <div className="text-[11px] mt-1" style={{ color: 'var(--sub)' }}>{hint}</div>}
     </div>
   )
@@ -389,10 +604,13 @@ function InputRow({ def, value, onChange, invalid }: {
 
 // ── 阶段 3：分步计算 ───────────────────────────────────────────────
 
-function Stage3({ trace, onChoose, running, onBack, onNext }: {
+function Stage3({ trace, onChoose, running, onAlign, aligning, onBack, onNext }: {
   trace: Trace | null
   onChoose: (s: string, v: string) => void
   running: boolean
+  onAlign?: (stepId: string, label: string, given: string,
+             candidates: Candidate[]) => void
+  aligning?: boolean
   onBack: () => void
   onNext: () => void
 }) {
@@ -410,7 +628,8 @@ function Stage3({ trace, onChoose, running, onBack, onNext }: {
     <Section title="阶段 3 · 分步计算"
              right={<Badge kind="info">每一步均可追溯信源</Badge>}>
       {calc.map((s, idx) => (
-        <CalcCard key={s.id} step={s} index={idx + 1} onChoose={onChoose} />
+        <CalcCard key={s.id} step={s} index={idx + 1} onChoose={onChoose}
+                  onAlign={onAlign} aligning={aligning} />
       ))}
 
       {skipped > 0 && (

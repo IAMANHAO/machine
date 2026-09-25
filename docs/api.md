@@ -195,6 +195,39 @@
 **`rejected` 是结构性保证**：每个建议值在返回前都跑过 `mds.runner._coerce`——
 与用户手输完全同一条通道。调用方拿不到一个绕过校验的数。
 
+### 让流程别卡住的三条
+
+| 端点 | 说明 |
+|---|---|
+| `POST /api/ai/fill-params` | 体 `{material 或 session, known, reply?}` → 补必填项 + 问不敢猜的 |
+| `POST /api/ai/align` | 体 `{label, value, candidates}` → 对不上的叫法归到候选里的哪一个 |
+| `POST /api/ai/advise-fix` | 体 `{material 或 session, param, value, problem, known}` → 为什么不合理、改成多少 |
+
+`/selection/run` 与 `/guided/{sid}/run` 都多收两个字段：
+
+```json
+{ "ai_filled":  { "a0": "取推荐区间中部" },
+  "ai_aligned": { "grade_pick": "烧结钕铁硼" } }
+```
+
+**引擎不认识这两个字段**，它们只用来在 `trace.warnings` 里如实列出哪些值不是
+用户填的。一个标着出身的数不是来路不明的数；一个混在手输里看不出区别的才是。
+
+`fill-params` 的返回分四组，与 `suggest` 同构：
+
+```json
+{ "filled":   { "P": { "value": 5.5, "rationale": "按常见三相异步电机额定功率档取" } },
+  "questions": [ { "id": "work_machine", "ask": "带动的是什么设备？", "why": "工况系数全看它" } ],
+  "rejected":  { "n1": "补的值 999999 没通过参数校验：…超出允许上限 20000" },
+  "still_missing": ["work_machine"] }
+```
+
+`align` 返回的 `value` **必然在候选里**，或为 `null`：
+
+```json
+{ "value": "烧结钕铁硼", "confidence": "high", "why": "N35 是它的常见牌号" }
+```
+
 ### 知识库里没有的物料：引导式选型
 
 按 SKILL.md 的阶段 0~6 一段一段推进，**每一段都由用户拍板**。

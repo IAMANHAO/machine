@@ -17,7 +17,7 @@
 ```bash
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e . ".[dev]"   # Windows
-.venv/Scripts/python.exe -m pytest -q                    # 480 项，应全绿
+.venv/Scripts/python.exe -m pytest -q                    # 497 项，应全绿
 
 cd web && npm install                                    # 只在改前端时需要
 ```

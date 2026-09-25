@@ -22,7 +22,7 @@ cd web; npm run dev                                 # → :5173，自动代理 /
 ## 测试
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q               # 480 项
+.venv/Scripts/python.exe -m pytest -q               # 497 项
 .venv/Scripts/python.exe packaging/smoke_test.py    # 30 项，需先打包
 ```
 
@@ -47,6 +47,7 @@ cd web; npm run dev                                 # → :5173，自动代理 /
 | `test_research.py` | **取证层**：SSRF 护栏、正文里没有声称的标准号就不予采纳、trusted ≠ 绿灯 |
 | `test_search.py` | 三家搜索服务的响应形状、降级不吞掉失败原因、key 不落文件 |
 | `test_websearch.py` | 服务商自带联网：**只取链接不取答案**、不支持就老实降级 |
+| `test_assist.py` | **报错不是终点**：补的值过同一道闸门、说不出理由的丢掉、对齐造不出新选项、AI 给的值在结果里留痕 |
 | `test_guided.py` | 引导式全流程：依据取证、编出来的系数过不去、**不合规先退回给模型改**、顺序闸门在后端、保存后离线可用 |
 | `conftest.py` | 共享的 FakeProvider 与数据目录/凭据库隔离夹具 |
 | `test_export.py` | 信源清单在、代入式在、流程没走完不装作走完了 |

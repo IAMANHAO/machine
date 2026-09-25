@@ -99,12 +99,16 @@ class NeedsChoice(MDSError):
     """某个 select 步骤需要人或 AI 做决策，引擎不替用户决定。"""
 
     def __init__(self, message: str, *, step: str, candidates: list,
-                 recommended: Any = None, reason: str | None = None):
+                 recommended: Any = None, reason: str | None = None,
+                 given: Any = None):
         super().__init__(message)
         self.step = step
         self.candidates = candidates
         self.recommended = recommended
         self.reason = reason
+        # 用户原本给的那个值（叫法对不上时才有）。留着它，界面才能问
+        # "我说的是哪一个" —— 没有它就只能让用户从头再选一遍。
+        self.given = given
 
     def as_dict(self) -> dict:
         d = super().as_dict()
@@ -113,5 +117,6 @@ class NeedsChoice(MDSError):
             "candidates": self.candidates,
             "recommended": self.recommended,
             "reason": self.reason,
+            "given": self.given,
         })
         return d

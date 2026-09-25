@@ -35,7 +35,7 @@ def run(body: RunIn) -> RunOut:
         raise HTTPException(status_code=400, detail={
             "error": type(exc).__name__, "message": str(exc)}) from exc
 
-    trace = payload["trace"]
+    trace = engine.note_ai_origins(payload["trace"], body.ai_filled, body.ai_aligned)
     project_id = body.project_id
 
     if body.save:

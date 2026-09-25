@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-480%20passing-brightgreen.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-497%20passing-brightgreen.svg)](#测试)
 
 **过程可逐行验证的机械物料选型工具。离线可用，免费，开源。**
 
@@ -55,7 +55,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e . ".[dev]"   # Windows
 # source .venv/bin/activate && pip install -e ".[dev]"  # macOS / Linux
 
-.venv/Scripts/python.exe -m pytest -q                    # 480 项，应全绿
+.venv/Scripts/python.exe -m pytest -q                    # 497 项，应全绿
 ```
 
 跑起来：
@@ -215,6 +215,31 @@ AI 由你在设置页绑定自己的账号提供，请求由本机直连服务�
 代价是表单变长——你要自己查几个系数。这个代价是对的：
 **一个 AI 编出来的 K=1.3 和一个抄自国标的 K=1.3，在界面上长得一模一样。**
 
+### 报错不是终点
+
+选型流程里最让人泄气的不是算不出来，是**被一个报错堵死、还不知道下一步该干嘛**。
+所以三处常见的卡点都留了出路（需要绑定账号并联网）：
+
+| 卡在哪 | 出路 |
+|---|---|
+| 必填参数没填完 | 让 AI 把**能负责任地补的**补上、**不敢猜的问你**（一次最多问 3 条） |
+| 填的叫法与候选对不上 | 问 AI「我说的是下面哪一个」——它**只能在候选里指一个** |
+| 填了个不合理的值 | 问 AI 为什么不合理、该改成多少，并给出这个建议是怎么推的 |
+
+**但"不堵死"不等于"随便放个数进去"。** 这三条的共同约束只有一条：
+
+> **每一个由 AI 填进来的值，都会在字段上、结果警告里、导出报告里留下出身。**
+
+一个标着「AI 按常用值补的，理由：取推荐区间中部」的数不是来路不明的数；
+一个混在你手输里、看不出区别的数才是。
+
+另外四条细规矩：
+
+- 补进来的值走**与你手输完全相同**的校验通道，过不了的直接丢
+- **说不出理由的值不写进参数表**——那正是"来路不明"的定义
+- **只补必填项**：可选项在工作流里有有出处的回退式，用 AI 的猜测覆盖它是倒退
+- 对齐**拿不准就不对齐**——对不上你会自己重选，对错了你不会发现
+
 ### 全都过不去的时候：AI 参考草案
 
 三道闸门都过不去，也不该让你卡死。这时可以让 AI **直接把整个选型做完，包括出数**——
@@ -301,7 +326,7 @@ PDF 中文用 reportlab 内置的 STSong-Light CID 字体，不随包分发字�
 ## 测试
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q      # 480 项
+.venv/Scripts/python.exe -m pytest -q      # 497 项
 .venv/Scripts/python.exe packaging/smoke_test.py   # 30 项，需先打包
 ```
 

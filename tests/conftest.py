@@ -24,6 +24,7 @@ class FakeProvider:
     # 按调用顺序消耗的 finish_reason。"length" = 被 max_tokens 砍断，
     # 此时正文故意给一段半截 JSON —— 真实服务商就是这么表现的。
     finish_reasons: list = []
+    last_user: str = ""
 
     def __init__(self, api_key, *, spec=None, base_url="", timeout=45.0):
         if not api_key or not api_key.strip():
@@ -77,6 +78,9 @@ class FakeProvider:
         FakeProvider.calls.append({"model": model, "json_mode": json_mode,
                                    "max_tokens": max_tokens,
                                    "turns": len(messages)})
+        # 最后一条 user 消息，测试用来确认"用户的话真的传进去了"
+        FakeProvider.last_user = next(
+            (m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
         sys_prompt = messages[0]["content"]
         if "意图解析" in sys_prompt:
             body = self._scripted("intent", {
@@ -93,6 +97,14 @@ class FakeProvider:
             body = self._scripted("inputs", {"inputs": [], "notes": ""})
         elif "分步计算与校核" in sys_prompt:
             body = self._scripted("steps", {"steps": [], "result": []})
+        elif "参数补齐" in sys_prompt:
+            body = self._scripted("fill", {"filled": {}, "questions": []})
+        elif "叫法对齐" in sys_prompt:
+            body = self._scripted("align", {"value": None, "confidence": "low",
+                                            "why": "判断不了"})
+        elif "没通过校验" in sys_prompt:
+            body = self._scripted("fix", {"explain": "超出范围", "suggestion": None,
+                                          "how": "", "ask": ""})
         elif "参考草案" in sys_prompt:
             body = self._scripted("ai_draft", {"name_zh": "", "steps": [],
                                                "result": [], "caveats": []})

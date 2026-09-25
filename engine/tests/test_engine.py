@@ -309,3 +309,49 @@ def test_every_cached_table_loads(know):
             tbl = know.table(material, name)
             assert tbl.data, f"{material}/{name} 正文为空"
             assert tbl.confidence in ("verified", "single_source", "self_defined", "unknown")
+
+
+# ── select 的候选写法与"叫法对不上"的归类 ──────────────────────────
+
+def _grade_spec():
+    """内联候选用 {value, label} 写法 —— 与枚举输入的 options 同一套写法。"""
+    return _spec.parse({
+        "material": "magnet_probe", "name_zh": "磁吸铁片",
+        "inputs": [{"id": "grade", "name_zh": "磁铁材料牌号", "type": "text",
+                    "required": True}],
+        "steps": [{"id": "pick", "kind": "select", "name_zh": "选定磁铁材料牌号",
+                   "from_input": "grade",
+                   "candidates": [
+                       {"value": "烧结钕铁硼", "label": "烧结钕铁硼（高磁能积）"},
+                       {"value": "铁氧体", "label": "铁氧体（低成本）"}],
+                   "reason": "牌号要工程师定", "outputs": ["grade_pick"]}],
+        "result": [{"label": "牌号", "value": "{grade_pick}", "unit": ""}],
+    })
+
+
+def test_inline_candidates_accept_the_value_label_form():
+    """候选写成 {value, label} 时，value 就是 value。
+
+    早先这里用 str(c) 把整个字典字符串化，于是用户**选了候选里明明有的值**
+    也永远对不上，还被报成"该工况点没有数据，请去知识库补表"。
+    枚举输入的 options 一直认这个写法，两处必须一致。
+    """
+    trace = run(_grade_spec(), {"grade": "烧结钕铁硼"}, Knowledge(), {})
+    assert trace.status == "ok"
+    assert trace.result[0]["value"] == "烧结钕铁硼"
+    labels = [c["label"] for c in trace.steps[0]["detail"]["candidates"]]
+    assert labels == ["烧结钕铁硼（高磁能积）", "铁氧体（低成本）"]
+
+
+def test_a_name_that_does_not_match_is_a_choice_problem_not_a_data_gap():
+    """叫法对不上 ≠ 数据缺口。
+
+    报成 data_missing 会让界面说"去知识库补这张表"——指向一个不存在的问题。
+    正确的归类是"还需要决策"：把候选摆出来让人重选，流程不中断。
+    """
+    trace = run(_grade_spec(), {"grade": "other"}, Knowledge(), {})
+    assert trace.status == "needs_choice"
+    assert trace.blocker["error"] != "DataMissing"
+    assert "重新选" in trace.blocker["message"]
+    # 候选要带过去，否则界面没东西可摆
+    assert len(trace.blocker["candidates"]) == 2

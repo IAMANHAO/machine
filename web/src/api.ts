@@ -1,6 +1,7 @@
 import type {
-  AccountStatus, AiDraft, AiLimits, ApiError, AuditAll, Balance, ExplainResult,
-  GuidedInput, GuidedSession, Health, IntentResult, Material, MaterialAudit,
+  AccountStatus, AiDraft, AiLimits, AlignResult, ApiError, AuditAll, Balance,
+  ExplainResult, FillResult, FixAdvice, GuidedInput, GuidedSession, Health,
+  IntentResult, Material, MaterialAudit,
   Procure, Project, RunResult, SearchStatus, Step, SuggestResult, TableContent,
   Workflow,
 } from './types'
@@ -68,6 +69,10 @@ export const api = {
     choices?: Record<string, string>
     project_id?: string | null
     save?: boolean
+    /** 哪些值是 AI 补的（id → 理由）。引擎不认识它，只用来在结果里留下出身 */
+    ai_filled?: Record<string, string>
+    /** 哪些值是 AI 对齐叫法后改的（id → 对齐后的值） */
+    ai_aligned?: Record<string, string>
   }) => post<RunResult>('/selection/run', body),
 
   projects: () => call<Project[]>('/projects'),
@@ -163,8 +168,11 @@ export const api = {
   // 落盘之前也要能跑 —— "跑通了才存"的前提
   guidedWorkflow: (sid: string) => call<Workflow>(`/guided/${sid}/workflow`),
   guidedRun: (sid: string, values: Record<string, unknown>,
-              choices: Record<string, string> = {}) =>
-    post<RunResult>(`/guided/${sid}/run`, { values, choices }),
+              choices: Record<string, string> = {},
+              ai_filled: Record<string, string> = {},
+              ai_aligned: Record<string, string> = {}) =>
+    post<RunResult>(`/guided/${sid}/run`,
+                    { values, choices, ai_filled, ai_aligned }),
   // 兜底档：AI 直接做完，包括出数。**返回的不是选型结果**——
   // 没经过引擎、每个数都没有出处，存不成物料也进不了选型报告。
   guidedAiDraft: (sid: string) =>
@@ -176,6 +184,21 @@ export const api = {
   // ── AI 三接口 ──
   intent: (text: string, mode = 'auto') =>
     post<IntentResult>('/ai/intent', { text, mode }),
+  // ── 让流程别卡住的三条 ──
+  // 补进来的值全都走过与手输相同的校验闸门；对齐只能在给定候选里选。
+  fillParams: (body: {
+    material?: string; session?: string
+    known: Record<string, unknown>; reply?: string
+  }) => post<FillResult>('/ai/fill-params', body),
+  align: (label: string, value: string,
+          candidates: { value: string; label: string }[]) =>
+    post<AlignResult>('/ai/align', { label, value, candidates }),
+  adviseFix: (body: {
+    material?: string; session?: string
+    param: string; value: unknown; problem: string
+    known: Record<string, unknown>
+  }) => post<FixAdvice>('/ai/advise-fix', body),
+
   deleteSaved: (material: string) =>
     call<{ removed: boolean }>(`/ai/saved/${encodeURIComponent(material)}`,
       { method: 'DELETE' }),

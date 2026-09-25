@@ -201,6 +201,10 @@ def spec(sid: str) -> dict:
 class RunIn(BaseModel):
     values: dict = Field(default_factory=dict)
     choices: dict = Field(default_factory=dict)
+    # 与 /api/selection/run 一样：引擎不认识这两个字段，它们只用来
+    # 在结果里如实标出哪些值是 AI 补的、哪些是 AI 对齐叫法后改的。
+    ai_filled: dict = Field(default_factory=dict)
+    ai_aligned: dict = Field(default_factory=dict)
 
 
 @router.get("/{sid}/workflow")
@@ -229,7 +233,9 @@ def run(sid: str, body: RunIn) -> dict:
     sess = _run(guided.load, sid)
     data = _run(guided.spec_dict, sess)
     try:
-        return engine.execute_spec(mds_spec.parse(data), body.values, body.choices)
+        out = engine.execute_spec(mds_spec.parse(data), body.values, body.choices)
+        engine.note_ai_origins(out["trace"], body.ai_filled, body.ai_aligned)
+        return out
     except engine.MDSError as exc:
         raise _fail(exc, 400)
 

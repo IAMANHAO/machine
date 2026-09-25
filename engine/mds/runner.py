@@ -587,9 +587,16 @@ def _h_select(step, env, spec, knowledge, choices, st, sources):
 
     valid = [c["value"] for c in cands]
     if valid and str(picked) not in valid:
-        raise DataMissing(
-            f"{st.name_zh}：{picked!r} 不在候选范围内，可选 {', '.join(valid)}",
-            available=valid)
+        # **这不是数据缺口。** 报成 DataMissing 会让界面说"去知识库补这张表"，
+        # 把人指向一个根本不存在的问题——表好好的，只是叫法对不上。
+        # 退回成"还需要决策"：界面照常把候选摆出来让人重选，流程不中断。
+        raise NeedsChoice(
+            f"{st.name_zh}：{picked!r} 不在候选范围内，请从下面重新选一个",
+            step=step.id, candidates=cands,
+            recommended=step.get("recommended"),
+            reason=f"你给的 {picked!r} 与候选的叫法对不上。"
+                   f"可选：{'、'.join(valid)}",
+            given=str(picked))
     st.value = str(picked)
     st.outputs = {step.outputs[0]: st.value}
     st.formula = f"{st.name_zh}（由用户指定）"
@@ -648,7 +655,11 @@ _HANDLERS = {
 def _candidates(cs, spec: WorkflowSpec, knowledge: Knowledge, env: dict,
                 sources: list, st: StepTrace) -> list[dict]:
     if isinstance(cs, list):
-        return [{"value": str(c), "label": str(c)} for c in cs]
+        # 内联候选与枚举输入的 options 用**同一套**写法：裸值或 {value, label}。
+        # 早先这里写的是 str(c)，把整个 {value, label} 字典字符串化成
+        # "{'value': '烧结钕铁硼', ...}" —— 于是用户哪怕选了候选里明明有的值
+        # 也永远对不上，还被报成"该工况点没有数据"。两处写法必须一致。
+        return [{"value": v, "label": lb} for v, lb in map(_option_pair, cs)]
     tbl = knowledge.table(spec.material, cs["table"])
     _attach_source(st, tbl, sources)
     node = _tables.walk(tbl, cs["path"], env)

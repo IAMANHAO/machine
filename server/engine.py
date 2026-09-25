@@ -25,7 +25,7 @@ __all__ = [
     "knowledge", "materials", "workflow_payload", "execute", "procure_build",
     "procure_for_trace", "audit_material", "audit_all", "read_table",
     "workflow_spec", "material_ids", "payload_of", "execute_spec",
-    "stale_sources", "engine_version", "reset_caches",
+    "stale_sources", "engine_version", "reset_caches", "note_ai_origins",
 ]
 
 
@@ -243,6 +243,33 @@ def procure_for_trace(material: str, trace: dict) -> dict | None:
 def procure_build(material_template: str, fields: dict,
                   channels: list[str] | None = None, extra: str = "") -> dict:
     return mds_procure.build(material_template, fields, channels, extra)
+
+
+def note_ai_origins(trace: dict, ai_filled: dict, ai_aligned: dict) -> dict:
+    """把"这几个值是 AI 给的"如实写进结果警告。
+
+    **引擎不知道也不该知道这件事**——它只管算。出身是服务层的记账：
+    谁填的、为什么这么填，由界面与接口层一路带过来，在这里落到 trace 上，
+    再由导出报告原样带走。
+
+    一个标着"AI 按常用值补的，理由：…"的数不是来路不明的数；
+    一个混在用户手输里、看不出区别的数才是。这个函数就是那条分界线。
+    """
+    lines = []
+    for pid, why in (ai_filled or {}).items():
+        lines.append(f"{pid}（{why}）" if why else pid)
+    if lines:
+        trace.setdefault("warnings", []).insert(0, (
+            f"⚠ 本次有 {len(lines)} 个参数不是你填的，是 AI 按常用值补的："
+            + "；".join(lines) + "。"
+            "它们已经过与手输相同的校验，但**校验只管取值合法，不管它适不适合你的工况**。"
+            "定稿前请逐项确认。"))
+    if ai_aligned:
+        pairs = "；".join(f"{k} → {v}" for k, v in ai_aligned.items())
+        trace.setdefault("warnings", []).insert(0, (
+            f"⚠ 本次有 {len(ai_aligned)} 处取值由 AI 对齐了叫法：{pairs}。"
+            "对齐只在给定候选里选，不会造出新选项；但对错了你未必看得出来，请核对。"))
+    return trace
 
 
 def summarize(material: str, values: dict, trace: dict) -> tuple[str, str]:
