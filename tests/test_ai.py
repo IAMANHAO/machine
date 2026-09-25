@@ -295,3 +295,22 @@ def test_mask_never_leaks_enough_to_reconstruct():
     assert FAKE_KEY not in masked
     assert masked.count("*") >= 8
     assert mask("") == "" and mask(None) == ""
+
+
+def test_the_miscalibrated_token_cap_is_migrated_but_a_real_choice_is_not(tmp_path):
+    """1200 是我们定错的默认值（卡死引导式的计算步骤），不是用户的选择。
+
+    只在它原样没动过时才上调；用户自己改成别的数——哪怕更小——一律不碰。
+    在设置页点过一次「保存上限」的人，文件里就会存着那个 1200，
+    光改 dataclass 的默认值救不了他们。
+    """
+    from server.ai.budget import Budget, Limits
+
+    stale = Budget(tmp_path)
+    stale.set_limits(Limits(max_tokens_per_call=1200))
+    assert stale.limits().max_tokens_per_call == Limits().max_tokens_per_call
+
+    deliberate = Budget(tmp_path / "other")
+    (tmp_path / "other").mkdir()
+    deliberate.set_limits(Limits(max_tokens_per_call=900))
+    assert deliberate.limits().max_tokens_per_call == 900

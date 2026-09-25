@@ -215,6 +215,7 @@
 | `GET /api/guided/{sid}/workflow` | 阶段 2 表单，形状与 `/api/workflow/{m}` 完全相同 |
 | `POST /api/guided/{sid}/run` | 体 `{values, choices}` → **落盘之前也能跑**（同一个 runner） |
 | `POST /api/guided/{sid}/save` | 存进用户目录，下次离线也能选 |
+| `POST /api/guided/{sid}/ai-draft` | **兜底档**：AI 直接做完（含出数）。**返回的不是选型结果** |
 | `DELETE /api/guided/{sid}` | 丢弃会话 |
 | `DELETE /api/ai/saved/{material}` | 删掉一个已保存的自建物料（随包物料删不掉） |
 
@@ -234,7 +235,7 @@
 | 选了一条取证不通过的依据 | 422 `unverified_basis` |
 | 检索三条路都没结果 | 422 `no_search_results` |
 | 模型连着几轮都没过闸门 | 422 `guidance_rejected` |
-| 超出用量上限 | 429 |
+| 超出用量上限，或单次 token 上限低于这一步的结构下限 | 429 |
 
 **闸门在后端，不在前端按钮的置灰状态上。** 前端的 `can_*` 只是提示；
 把闸门放在前端等于没有闸门，curl 一下就绕过去了。
@@ -271,6 +272,26 @@
 `status` 五档：`cross_checked` / `trusted` / `single_source` /
 `unverified`（**选不了**）/ `unverifiable_claim`。
 `dropped_urls` 是被剔除的引用——不在检索结果集里，即模型凭记忆编的。
+
+#### 兜底档返回什么
+
+`/ai-draft` 的返回**刻意不是 trace 的形状**——它不该能被当成选型结果传下去：
+
+```json
+{ "draft": {
+    "parsed": true,
+    "steps": [ { "label": "…", "formula": "P_ca = K_A * P",
+                 "substitution": "1.3 * 5.5", "value": "7.15",
+                 "source": "…（待核）",
+                 "arith": "ok", "arith_value": "7.15" } ],
+    "arith": { "ok": 6, "mismatch": 1, "unreadable": 0 },
+    "text": "# ⚠ AI 参考草案 —— 这不是选型结果
+…" },
+  "session": { "has_ai_draft": true, "can_run": false, "steps": [] } }
+```
+
+`arith` 是**引擎重算 AI 自己写的代入式**的结果，不是"公式对不对"。
+`session.steps` 保持为空——所以 `/spec` 与 `/save` 照样 409。
 
 #### 搜索服务的绑定
 

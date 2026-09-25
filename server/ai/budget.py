@@ -16,9 +16,19 @@ from pathlib import Path
 
 @dataclass
 class Limits:
-    """默认值取保守值：宁可挡住，也不要让人半夜发现账单跑飞了。"""
+    """默认值取保守值：宁可挡住，也不要让人半夜发现账单跑飞了。
 
-    max_tokens_per_call: int = 1200
+    **但 `max_tokens_per_call` 不是"花费上限"，是"单次输出的长度上限"。**
+    服务商按实际生成的 token 计费，把它压低省不下钱——只会把长输出**截断**，
+    换来一段没法用的半截 JSON，那次调用的钱照样花了。
+    真正管住钱的是 `max_calls_per_day`。
+
+    这个默认值原来是 1200，正好卡死引导式的"整套计算与校核"那一步
+    （它要三千多 token），表现成"模型连着两次不合规"——
+    实际是我们自己砍断的。所以调到 4000。
+    """
+
+    max_tokens_per_call: int = 4000
     max_calls_per_day: int = 200
     enabled: bool = True
 
@@ -56,10 +66,18 @@ class Budget:
         self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
                              encoding="utf-8")
 
+    # 旧的默认值。它卡死了引导式的"整套计算与校核"那一步，是个 bug，
+    # 不是用户的选择——所以**只在它原样没动过时**才上调。
+    # 用户自己改成别的数（哪怕更小）就一律不碰：那是他的决定。
+    _MISCALIBRATED_DEFAULT = 1200
+
     def limits(self) -> Limits:
         raw = self._load().get("limits") or {}
         known = {f for f in Limits.__dataclass_fields__}
-        return Limits(**{k: v for k, v in raw.items() if k in known})
+        lim = Limits(**{k: v for k, v in raw.items() if k in known})
+        if lim.max_tokens_per_call == self._MISCALIBRATED_DEFAULT:
+            lim.max_tokens_per_call = Limits().max_tokens_per_call
+        return lim
 
     def set_limits(self, limits: Limits) -> Limits:
         data = self._load()
@@ -97,6 +115,28 @@ class Budget:
         if not lim.enabled:
             return requested or lim.max_tokens_per_call
         return min(requested or lim.max_tokens_per_call, lim.max_tokens_per_call)
+
+    def token_ceiling(self) -> int:
+        """用户设的单次上限本身。截断之后要往上顶到这里，不能再高。"""
+        return self.limits().max_tokens_per_call
+
+    def require(self, floor: int, what: str) -> None:
+        """这一步在结构上至少要多少 token —— 不够就**在发请求之前**拦下来。
+
+        低于这个数产出的一定是被截断的半截 JSON。那不是"省钱"：
+        调用照样计费，只是换回来一段没法用的东西，然后还要再花一次钱重试。
+        所以宁可现在拦住，并告诉用户去改哪个设置。
+        """
+        lim = self.limits()
+        if not lim.enabled or lim.max_tokens_per_call >= floor:
+            return
+        raise BudgetExceeded(
+            f"「{what}」这一步至少需要 {floor} token 才能输出完整结果，"
+            f"而你的单次调用上限是 {lim.max_tokens_per_call}。"
+            "请在设置页把它调到 {floor} 以上——**这个上限不是花费上限**，"
+            "服务商按实际生成的长度计费，调高它不会让短回复变贵，"
+            "只是让长回复不被砍断。".replace("{floor}", str(floor)),
+            limit="tokens_per_call", used=lim.max_tokens_per_call, cap=floor)
 
     def record(self, usage) -> dict:
         data = self._load()

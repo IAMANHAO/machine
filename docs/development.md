@@ -22,7 +22,7 @@ cd web; npm run dev                                 # → :5173，自动代理 /
 ## 测试
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q               # 470 项
+.venv/Scripts/python.exe -m pytest -q               # 480 项
 .venv/Scripts/python.exe packaging/smoke_test.py    # 30 项，需先打包
 ```
 

@@ -74,6 +74,14 @@ class Usage:
 class Completion:
     text: str
     usage: Usage = field(default_factory=Usage)
+    # 为什么要留着它：`length` 表示输出被 max_tokens 砍断了。
+    # 没有这个字段的话，一段被截断的 JSON 只会表现为「模型没返回合法 JSON」——
+    # 把我们自己砍断的锅扣给模型，用户照着提示去换个模型也没用。
+    finish_reason: str = ""
+
+    @property
+    def truncated(self) -> bool:
+        return self.finish_reason == "length"
 
     def as_json(self) -> Any:
         """把模型返回的 JSON 文本解析出来。解析不了就报错，不猜。"""
@@ -83,6 +91,13 @@ class Completion:
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
+            if self.truncated:
+                raise AIError(
+                    f"输出在第 {self.usage.completion_tokens} 个 token 处被"
+                    "**单次调用 token 上限**截断了，所以 JSON 不完整。"
+                    "这不是模型不合规——把上限提上去才能解决，"
+                    "让它照着原因重写一遍没有用。",
+                    kind="truncated") from exc
             raise AIError(f"模型没有返回合法的 JSON：{raw[:120]}", kind="bad_json") from exc
 
 
@@ -261,7 +276,9 @@ class Provider:
         # 各家报缓存命中的字段名不同：DeepSeek 用 prompt_cache_hit_tokens，
         # OpenAI 放在 prompt_tokens_details.cached_tokens 里。
         details = u.get("prompt_tokens_details") or {}
-        return Completion(text=text, usage=Usage(
+        return Completion(text=text,
+                          finish_reason=str(choices[0].get("finish_reason") or ""),
+                          usage=Usage(
             prompt_tokens=int(u.get("prompt_tokens") or 0),
             completion_tokens=int(u.get("completion_tokens") or 0),
             total_tokens=int(u.get("total_tokens") or 0),

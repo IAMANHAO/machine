@@ -1,5 +1,5 @@
 import type {
-  AccountStatus, AiLimits, ApiError, AuditAll, Balance, ExplainResult,
+  AccountStatus, AiDraft, AiLimits, ApiError, AuditAll, Balance, ExplainResult,
   GuidedInput, GuidedSession, Health, IntentResult, Material, MaterialAudit,
   Procure, Project, RunResult, SearchStatus, Step, SuggestResult, TableContent,
   Workflow,
@@ -165,6 +165,10 @@ export const api = {
   guidedRun: (sid: string, values: Record<string, unknown>,
               choices: Record<string, string> = {}) =>
     post<RunResult>(`/guided/${sid}/run`, { values, choices }),
+  // 兜底档：AI 直接做完，包括出数。**返回的不是选型结果**——
+  // 没经过引擎、每个数都没有出处，存不成物料也进不了选型报告。
+  guidedAiDraft: (sid: string) =>
+    post<{ draft: AiDraft; session: GuidedSession }>(`/guided/${sid}/ai-draft`, {}),
   guidedSave: (sid: string) =>
     post<{ saved: boolean; material: string; name_zh: string; note: string }>(
       `/guided/${sid}/save`, {}),

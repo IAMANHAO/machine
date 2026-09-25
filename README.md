@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-470%20passing-brightgreen.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-480%20passing-brightgreen.svg)](#测试)
 
 **过程可逐行验证的机械物料选型工具。离线可用，免费，开源。**
 
@@ -55,7 +55,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e . ".[dev]"   # Windows
 # source .venv/bin/activate && pip install -e ".[dev]"  # macOS / Linux
 
-.venv/Scripts/python.exe -m pytest -q                    # 470 项，应全绿
+.venv/Scripts/python.exe -m pytest -q                    # 480 项，应全绿
 ```
 
 跑起来：
@@ -215,6 +215,20 @@ AI 由你在设置页绑定自己的账号提供，请求由本机直连服务�
 代价是表单变长——你要自己查几个系数。这个代价是对的：
 **一个 AI 编出来的 K=1.3 和一个抄自国标的 K=1.3，在界面上长得一模一样。**
 
+### 全都过不去的时候：AI 参考草案
+
+三道闸门都过不去，也不该让你卡死。这时可以让 AI **直接把整个选型做完，包括出数**——
+但它**不是选型结果**，这一点做成了结构而不是一句提示语：
+
+- 它不写进流程的步骤里，所以**存不成物料**（没有东西可存，不是按钮置灰）
+- 不进 PDF / Excel 选型报告
+- 免责头由服务端拼进文本，**复制出去也带着**
+
+引擎在这一档里只做一件事，但这件事有价值：AI 要给出只含数字的代入式
+（`1.3 * 5.5`），引擎重算一遍与它声称的值比对，逐行标「算术✓ / 算术✗」。
+**算术对得上，不等于公式适用于你的工况**——前者引擎说了算，后者引擎不判断，
+界面上分开报。
+
 **模型不合规时不会直接甩给你**：引擎把逐条原因退回去让它改（最多两轮），
 闸门本身一个字都不放松，改不好才轮到你——界面上如实显示修了几轮。
 引擎**绝不替模型改**：它动手改出来的内容没有作者。
@@ -287,7 +301,7 @@ PDF 中文用 reportlab 内置的 STSong-Light CID 字体，不随包分发字�
 ## 测试
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q      # 470 项
+.venv/Scripts/python.exe -m pytest -q      # 480 项
 .venv/Scripts/python.exe packaging/smoke_test.py   # 30 项，需先打包
 ```
 

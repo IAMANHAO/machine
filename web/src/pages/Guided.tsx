@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, RequestError } from '../api'
 import { Alert, Badge, Section, Spinner } from '../components/ui'
 import type {
-  BasisCandidate, Evidence, GuidedInput, GuidedSession, RepairAttempt,
+  AiDraft, BasisCandidate, Evidence, GuidedInput, GuidedSession, RepairAttempt,
 } from '../types'
 
 /**
@@ -51,6 +51,7 @@ export default function Guided({ materialText, onReady, onCancel }: {
   const [err, setErr] = useState<{ message: string; reasons?: string[] } | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [custom, setCustom] = useState('')
+  const [draft, setDraft] = useState<AiDraft | null>(null)
 
   const act = useCallback(async (what: string, fn: () => Promise<GuidedSession>) => {
     setBusy(what); setErr(null)
@@ -61,6 +62,17 @@ export default function Guided({ materialText, onReady, onCancel }: {
       setErr({ message: ex.message, reasons: ex.detail?.reasons })
     } finally { setBusy('') }
   }, [])
+
+  /** 兜底档。**它不改变会话状态**：有草案不等于流程走通了。 */
+  const drawDraft = useCallback(async () => {
+    if (!sess) return
+    setBusy('ai-draft')
+    try {
+      setDraft((await api.guidedAiDraft(sess.id)).draft)
+    } catch (e) {
+      setErr({ message: (e as RequestError).message })
+    } finally { setBusy('') }
+  }, [sess])
 
   // 开会话。**此时还没有检索，也还没花一个 token。**
   useEffect(() => {
@@ -103,11 +115,24 @@ export default function Guided({ materialText, onReady, onCancel }: {
               ) : null}
               <div className="mt-2 text-[11px]" style={{ color: 'var(--sub)' }}>
                 引擎已经把这些原因退回给模型让它改过了，仍然没过。
-                你可以再试一次、换一个模型，或者自己填依据往下走。
+                你可以再试一次、换一个模型、自己填依据往下走，
+                或者用下面的兜底档。
+              </div>
+              <div className="mt-3">
+                <button className="btn" disabled={!!busy}
+                        onClick={() => void drawDraft()}>
+                  {busy === 'ai-draft' ? '生成中…' : '让 AI 直接给一份参考草案 →'}
+                </button>
+                <div className="mt-1.5 text-[11px]" style={{ color: 'var(--sub)' }}>
+                  它会把整个选型做完、<b>包括出数</b>，但那些数<b>没有任何出处</b>：
+                  不经过引擎、存不成物料、也进不了选型报告。
+                </div>
               </div>
             </Alert>
           </div>
         )}
+
+        {draft && <DraftPanel draft={draft} />}
 
         {/* ── 阶段 1：依据检索 ── */}
         <StageCard n={1} title="依据检索" active={!basisDone}
@@ -446,5 +471,156 @@ function StepTable({ steps }: { steps: Record<string, unknown>[] }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+/**
+ * 兜底档的呈现。**这一段的设计目标是让人不会把它当成选型结果。**
+ *
+ * 所以：红色边框、标题直说"不是选型结果"、每一行都标引擎复核的结论、
+ * 复制出去的文本自带免责头。
+ */
+function DraftPanel({ draft }: { draft: AiDraft }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(draft.text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch { /* 剪贴板没权限就算了，文本本来就显示在下面 */ }
+  }
+
+  const ARITH: Record<string, { label: string; kind: 'ok' | 'err' | 'info' }> = {
+    ok: { label: '算术✓', kind: 'ok' },
+    mismatch: { label: '算术✗', kind: 'err' },
+    unreadable: { label: '未核', kind: 'info' },
+  }
+
+  return (
+    <div className="card p-4 mb-4"
+         style={{ borderColor: 'rgba(239,68,68,.45)',
+                  background: 'rgba(239,68,68,.04)' }}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div>
+          <div className="text-[14px] font-medium" style={{ color: '#f87171' }}>
+            ⚠ AI 参考草案 —— 这不是选型结果
+          </div>
+          <div className="text-[11px] mt-1" style={{ color: 'var(--sub)' }}>
+            没有经过确定性引擎，里面<b>每一个数都没有可追溯的出处</b>；
+            它没有存进你的物料库，也不会出现在选型报告里。
+          </div>
+        </div>
+        <button className="btn text-[12px] py-1 px-2.5 whitespace-nowrap"
+                onClick={() => void copy()}>
+          {copied ? '已复制' : '复制全文'}
+        </button>
+      </div>
+
+      <div className="text-[11px] mb-3 p-2 rounded"
+           style={{ background: 'var(--card2, rgba(255,255,255,.03))',
+                    color: 'var(--sub)' }}>
+        <b>引擎复核了什么：</b>只重算了 AI 自己写的代入式——
+        {draft.arith.ok} 步对得上，
+        <b style={{ color: draft.arith.mismatch ? '#f87171' : 'inherit' }}>
+          {draft.arith.mismatch} 步对不上
+        </b>
+        ，{draft.arith.unreadable} 步没法核。
+        <br />
+        <b>公式是否适用于你的工况、系数取值对不对：引擎没有、也无法判断。</b>
+      </div>
+
+      {!draft.parsed ? (
+        <pre className="text-[11px] whitespace-pre-wrap scroll"
+             style={{ maxHeight: 420, overflow: 'auto' }}>{draft.text}</pre>
+      ) : (
+        <>
+          {draft.given.length > 0 && (
+            <DraftTable title="已知条件" head={['项目', '符号', '值', '单位', '说明']}
+                        rows={draft.given.map(g => [g.label, g.symbol,
+                          `${g.value} ${g.unit || ''}`.trim(), g.unit, g.note])} />
+          )}
+
+          <div className="text-[12px] font-medium mt-3 mb-1">计算过程</div>
+          <div className="overflow-x-auto scroll">
+            <table className="tbl">
+              <thead>
+                <tr><th>项目</th><th>公式</th><th>代入</th><th>结果</th>
+                    <th>AI 自述出处</th><th>引擎复核</th></tr>
+              </thead>
+              <tbody>
+                {draft.steps.map((s, i) => {
+                  const a = ARITH[s.arith] ?? ARITH.unreadable
+                  return (
+                    <tr key={i}>
+                      <td>{s.label}</td>
+                      <td className="num text-[12px]">{s.formula}</td>
+                      <td className="num text-[12px]">{s.substitution}</td>
+                      <td className="num">{s.value}{s.unit ? ` ${s.unit}` : ''}</td>
+                      <td className="text-[11px]" style={{ color: 'var(--sub)' }}>
+                        {s.source || '未说明'}
+                      </td>
+                      <td>
+                        <Badge kind={a.kind}
+                               title={s.arith === 'mismatch'
+                                 ? `按它自己的代入式算是 ${s.arith_value}`
+                                 : ''}>
+                          {a.label}
+                        </Badge>
+                        {s.arith === 'mismatch' && (
+                          <div className="text-[11px]" style={{ color: '#f87171' }}>
+                            实为 {s.arith_value}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {draft.checks.length > 0 && (
+            <DraftTable title="校核" head={['项目', '判据', '代入', '结论', 'AI 自述出处']}
+                        rows={draft.checks.map(c => [c.label, c.criterion,
+                          c.substitution, c.passed ? '通过' : '不通过',
+                          c.source || '未说明'])} />
+          )}
+          {draft.result.length > 0 && (
+            <DraftTable title="选型结果（未经引擎计算）" head={['项目', '值']}
+                        rows={draft.result.map(r => [r.label,
+                          `${r.value} ${r.unit || ''}`.trim()])} />
+          )}
+          {draft.caveats.length > 0 && (
+            <div className="mt-3 text-[11px]" style={{ color: 'var(--sub)' }}>
+              <b>AI 自己说的不可靠之处：</b>
+              <ul className="ml-4 list-disc mt-1">
+                {draft.caveats.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function DraftTable({ title, head, rows }: {
+  title: string; head: string[]; rows: (string | undefined)[][]
+}) {
+  return (
+    <>
+      <div className="text-[12px] font-medium mt-3 mb-1">{title}</div>
+      <div className="overflow-x-auto scroll">
+        <table className="tbl">
+          <thead><tr>{head.map(h => <th key={h}>{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>{r.map((c, j) => <td key={j}>{c || '—'}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }

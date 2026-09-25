@@ -175,6 +175,22 @@ def confirm_formulas(sid: str, body: ConfirmIn) -> dict:
     return guided.view(_run(guided.confirm_formulas, sid, body.confirmed))
 
 
+@router.post("/{sid}/ai-draft")
+def ai_draft(sid: str, mode: str = "auto") -> dict:
+    """兜底档：让 AI 直接把整个选型做完，**包括出数**。
+
+    **这条返回的不是选型结果。** 它没有经过确定性引擎，里面每个数都没有出处；
+    它不会写进会话的 steps/result，所以既变不成物料，也进不了选型报告。
+    引擎唯一做的事是重算了 AI 自己写的代入式，看它有没有算错——
+    算术对得上不等于公式适用，这两件事分开报。
+
+    前面几道闸门都过不去时，总得有东西交给用户；代价写在返回的文本头里。
+    """
+    provider = _need_provider(mode)
+    sess = _run(guided.ai_draft, sid, provider, ai.current_model(), ai.budget())
+    return {"draft": sess.ai_draft, "session": guided.view(sess)}
+
+
 @router.get("/{sid}/spec")
 def spec(sid: str) -> dict:
     """组装好的规格。公式没确认就 409 —— 拿不到也就跑不了。"""

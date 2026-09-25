@@ -302,3 +302,17 @@ def test_status_without_a_binding_says_it_will_use_the_whitelist(env):
     # mechtool.cn 必须出现在白名单里，并且是 trusted 档
     trusted = [w for w in st["whitelist"] if w["tier"] == "trusted"]
     assert [w["domain"] for w in trusted] == ["mechtool.cn"]
+
+
+def test_the_site_catalog_never_lands_in_the_knowledge_namespace(tmp_path, monkeypatch):
+    """`knowledge/cache/` 底下的每个子目录都会被引擎当成一个物料。
+
+    检索缓存放进去就会冒充成一个物料、它的文件冒充成一张数据表，
+    把知识库自检的张数顶高。打包冒烟抓到过一次，这条守住。
+    """
+    monkeypatch.setattr(SP, "_links_of", lambda url: [
+        {"url": "https://www.mechtool.cn/a.html", "title": "甲"}])
+    SP.site_catalog(R.SITES[0], tmp_path)
+
+    assert not (tmp_path / "knowledge").exists()
+    assert list((tmp_path / "search_cache").glob("*.yaml"))

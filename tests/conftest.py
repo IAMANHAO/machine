@@ -21,6 +21,9 @@ class FakeProvider:
     models = ["deepseek-flash", "deepseek-v4-pro"]
     script: dict = {}
     calls: list = []
+    # 按调用顺序消耗的 finish_reason。"length" = 被 max_tokens 砍断，
+    # 此时正文故意给一段半截 JSON —— 真实服务商就是这么表现的。
+    finish_reasons: list = []
 
     def __init__(self, api_key, *, spec=None, base_url="", timeout=45.0):
         if not api_key or not api_key.strip():
@@ -90,11 +93,20 @@ class FakeProvider:
             body = self._scripted("inputs", {"inputs": [], "notes": ""})
         elif "分步计算与校核" in sys_prompt:
             body = self._scripted("steps", {"steps": [], "result": []})
+        elif "参考草案" in sys_prompt:
+            body = self._scripted("ai_draft", {"name_zh": "", "steps": [],
+                                               "result": [], "caveats": []})
         else:
             return Completion(text=self._scripted("explain", "这一步在算设计功率。"),
                               usage=Usage(10, 20, 30, 0, model))
         text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
-        return Completion(text=text, usage=Usage(100, 50, 150, 20, model))
+        reason = (FakeProvider.finish_reasons.pop(0)
+                  if FakeProvider.finish_reasons else "stop")
+        if reason == "length":
+            # 砍掉后半截，模拟真实的截断：JSON 解析不了，但不是模型写错了
+            text = text[:max(1, len(text) // 3)]
+        return Completion(text=text, finish_reason=reason,
+                          usage=Usage(100, 50, 150, 20, model))
 
 
 @pytest.fixture()
@@ -113,6 +125,7 @@ def env(tmp_path, monkeypatch):
 
     FakeProvider.script = {}
     FakeProvider.calls = []
+    FakeProvider.finish_reasons = []
     from server import ai as ai_mod
     from server.ai import tasks
     monkeypatch.setattr(ai_mod, "Provider", FakeProvider)

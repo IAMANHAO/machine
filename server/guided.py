@@ -108,6 +108,11 @@ class Session:
     confidence_note: str = ""
     formulas_confirmed_at: str = ""
 
+    # 兜底档：AI 直接做完的参考草案。**刻意不是 trace 的形状**，
+    # 也刻意不参与 spec_dict() —— 它不能变成物料，不能进选型报告。
+    # 存在会话里只是为了刷新页面之后还看得见。
+    ai_draft: dict = field(default_factory=dict)
+
     # 每个阶段修了几轮才过闸门。**不是可以藏起来的事。**
     repair_log: dict = field(default_factory=dict)
     created_at: str = ""
@@ -382,6 +387,30 @@ def _require_basis(sess: Session) -> None:
             kind="out_of_order", stage=STAGE_BASIS)
 
 
+# --- 兜底档：AI 参考草案 ----------------------------------------------------
+
+def ai_draft(session_id: str, provider, model: str = "", budget=None) -> Session:
+    """让 AI 把整个选型直接做完，**包括出数**。
+
+    这一档没有合规闸门，所以它产出的东西**不是选型结果**：
+
+    - 不写进 `steps` / `result`，因此 `spec_dict()` 看不见它
+    - 不改变 `stage`，因此 `can_run` 不会因为它变成 True
+    - 存不成物料，也进不了选型报告
+
+    它存在的唯一理由是：前面几道闸门都过不去时，**总得有东西交给用户**。
+    代价（每个数都没有出处）在界面与文本头部都写死了。
+    """
+    from .ai import tasks
+
+    sess = load(session_id)
+    out = tasks.ai_draft(sess.material_text, sess.basis, sess.inputs,
+                         sess.excerpts, provider, model or sess.model,
+                         budget=budget)
+    sess.ai_draft = out
+    return _persist(sess)
+
+
 # --- 组装成一份普通的工作流规格 ---------------------------------------------
 
 def spec_dict(sess: Session) -> dict:
@@ -488,4 +517,6 @@ def view(sess: Session) -> dict:
     d["material"] = _unique_id(sess.material_id) if sess.material_id else ""
     d["usable_candidates"] = sum(
         1 for c in sess.candidates if (c.get("evidence") or {}).get("usable"))
+    # 有草案**不等于**能跑。can_run 只看公式确认过没有，和它无关。
+    d["has_ai_draft"] = bool(sess.ai_draft)
     return d

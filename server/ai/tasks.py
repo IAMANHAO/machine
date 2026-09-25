@@ -375,7 +375,8 @@ def _repair_prompt(reasons: list[str]) -> str:
 
 def _with_repair(messages: list[dict], audit, *, provider: Provider, model: str,
                  budget=None, rounds: int = 2, max_tokens: int = 2400,
-                 stage: str = "") -> tuple[dict, list[dict]]:
+                 min_tokens: int = 0, stage: str = "", what: str = "",
+                 ) -> tuple[dict, list[dict]]:
     """跑一次 JSON 任务；没过 `audit` 就把原因追加回对话让模型改。
 
     `audit(data) -> list[str]`，空列表表示通过。返回 `(data, repair_log)`。
@@ -391,20 +392,36 @@ def _with_repair(messages: list[dict], audit, *, provider: Provider, model: str,
        （数量不减且旧问题全在），立刻停——它没在收敛，再跑就是白花钱。
     4. **过程留痕。** `repair_log` 进会话、进接口响应、进最终报告。
        修了几轮不是可以藏起来的事。
+
+    ## 截断不算"不合规"
+
+    输出被 `max_tokens` 砍断时，JSON 当然解析不了——但那是**我们把它砍断的**，
+    不是它写错了。照着"原因"让它重写一遍只会得到同样长度的另一段半截 JSON，
+    白花一次钱。所以截断单独处理：能往上顶就顶一次再试（不计入修正轮数），
+    已经顶到用户设的上限就当场停，并明说要去改哪个设置。
+
+    `min_tokens` 是这一步结构上的下限，在发第一次请求**之前**就检查——
+    与其花钱换回一段没法用的东西，不如现在就告诉用户。
     """
+    if budget and min_tokens:
+        budget.require(min_tokens, what or stage or "这一步")
+
     log: list[dict] = []
     convo = list(messages)
     prev: set[str] | None = None
+    cap = budget.cap_tokens(max_tokens) if budget else max_tokens
+    ceiling = budget.token_ceiling() if budget else max_tokens
+    bumped = False
 
-    for attempt in range(rounds + 1):
+    attempt = 0
+    while attempt <= rounds:
         if budget:
             budget.check()
-        comp = provider.chat(
-            convo, model=model, json_mode=True,
-            max_tokens=budget.cap_tokens(max_tokens) if budget else max_tokens)
+        comp = provider.chat(convo, model=model, json_mode=True, max_tokens=cap)
         if budget:
             budget.record(comp.usage)
 
+        truncated = comp.truncated
         try:
             data = comp.as_json()
             if not isinstance(data, dict):
@@ -414,11 +431,26 @@ def _with_repair(messages: list[dict], audit, *, provider: Provider, model: str,
             data = {}
             reasons = [f"返回的不是合法的 JSON 对象：{exc}"]
 
-        entry = {"attempt": attempt + 1, "reasons": reasons,
-                 "passed": not reasons, "usage": comp.usage.to_dict()}
+        entry = {"attempt": len(log) + 1, "reasons": reasons,
+                 "passed": not reasons, "truncated": truncated,
+                 "max_tokens": cap, "usage": comp.usage.to_dict()}
         log.append(entry)
         if not reasons:
             return data, log
+
+        # 截断：先把上限顶到用户设的天花板再试一次，**不算一轮修正**。
+        if truncated and not data:
+            if not bumped and cap < ceiling:
+                bumped = True
+                entry["bumped_to"] = ceiling
+                cap = ceiling
+                continue
+            raise GuidanceRejected(
+                f"「{what or stage}」的输出被单次调用 token 上限（{ceiling}）截断了，"
+                "所以拿不到完整的 JSON。**这不是模型不合规**——"
+                "请在设置页把上限调高再试。这个上限不是花费上限，"
+                "服务商按实际生成的长度计费，调高它不会让短回复变贵。",
+                [str(r) for r in reasons], log=log, stage=stage)
 
         current = set(reasons)
         if prev is not None and len(reasons) >= len(prev) and prev <= current:
@@ -430,6 +462,7 @@ def _with_repair(messages: list[dict], audit, *, provider: Provider, model: str,
 
         convo.append({"role": "assistant", "content": comp.text})
         convo.append({"role": "user", "content": _repair_prompt(reasons)})
+        attempt += 1
 
     last = log[-1]["reasons"]
     raise GuidanceRejected(
@@ -574,7 +607,7 @@ def research_basis(material_text: str, hits: list[dict], provider: Provider,
         [{"role": "system", "content": _BASIS_SYS},
          {"role": "user", "content": user}],
         _basis_audit(known), provider=provider, model=model, budget=budget,
-        max_tokens=2000, stage="basis")
+        max_tokens=2200, min_tokens=1200, stage="basis", what="依据检索")
 
     mid = re.sub(r"[^a-z0-9_]", "_",
                  str(data.get("material_id") or "").lower()).strip("_")
@@ -698,7 +731,7 @@ def guide_inputs(material_text: str, basis: dict, excerpts: list[dict],
         [{"role": "system", "content": _INPUTS_SYS},
          {"role": "user", "content": user}],
         _audit_inputs, provider=provider, model=model, budget=budget,
-        max_tokens=2400, stage="inputs")
+        max_tokens=2600, min_tokens=1500, stage="inputs", what="参数引导")
     return {"inputs": data["inputs"], "notes": str(data.get("notes") or ""),
             "repair_log": log, "source": "ai"}
 
@@ -902,7 +935,7 @@ def guide_steps(material_text: str, basis: dict, inputs: list[dict],
         [{"role": "system", "content": _STEPS_SYS},
          {"role": "user", "content": user}],
         audit, provider=provider, model=model, budget=budget,
-        max_tokens=3200, stage="steps")
+        max_tokens=3600, min_tokens=2600, stage="steps", what="计算与校核")
 
     return {
         "steps": data["steps"],
@@ -913,4 +946,240 @@ def guide_steps(material_text: str, basis: dict, inputs: list[dict],
         "confidence_note": str(data.get("confidence_note") or ""),
         "repair_log": log,
         "source": "ai",
+    }
+
+
+# --- 兜底档：AI 参考草案（不是选型结果） ------------------------------------
+#
+# 用户明确要的一档：前面几道闸门都过不去时，让 AI 直接把整个选型做完，
+# **包括出数**。代价说清楚了才做：
+#
+# 1. 这些数**没有任何出处**。引擎不参与选择公式，也不参与计算。
+# 2. 所以它**不是选型结果**：不产生 trace、不能存成物料、不进选型报告。
+#    界面与文本头部都写死这件事，复制出去也带着。
+# 3. 引擎唯一能做、也确实做了的一件事：**复核它自己写的算术**。
+#    代入式里只允许数字与运算符，用 mds.expr 重算一遍与它声称的值比对。
+#    这不证明公式对，只证明它没算错——两件事要分清楚。
+
+_AI_DRAFT_SYS = """你是机械设计选型助手。用户要选的物料，引擎里没有可执行的工作流，
+前面几道合规闸门也没能通过。现在由你**直接做完整个选型，包括给出数值**。
+
+## 先认清这份东西的性质
+
+你产出的**不是**本软件的选型结果，而是一份**参考草案**：它不经过确定性引擎，
+里面每一个数都没有可追溯的出处。用户已经被明确告知这一点。
+正因如此，你要做的是**让人能自己复核**，而不是让人相信你。
+
+## 硬要求
+
+1. 每一个计算步骤都要给三样东西：
+   - `formula`：符号式，例如 `P_ca = K_A * P`
+   - `substitution`：**只含数字与运算符**的代入式，例如 `1.3 * 5.5`
+     不准出现字母、单位、中文。引擎会用它重算一遍，跟你声称的值比对。
+   - `value`：你算出来的数（只写数字）
+2. 每一步都要写 `source`：这个公式你认为出自哪里。
+   **拿不准就写「待核」**，不要编标准号。
+3. 凡是查表得来的系数，在 `note` 里写明你取的是哪一档、为什么。
+4. `caveats` 里如实写出这份草案最不可靠的地方（至少 2 条）。
+
+## 单位
+
+功率 kW，转速 r/min，长度 mm，力 N，扭矩 N·m，应力 MPa。
+换算写进代入式里，别留在脑子里。
+
+只输出 JSON：
+
+{"name_zh": "物料中文名", "standard": "你认为适用的标准号，或空字符串",
+ "given": [{"label": "已知条件名", "symbol": "P", "value": "5.5", "unit": "kW",
+            "note": "用户给定 / 你的假设"}],
+ "steps": [{"label": "计算设计功率", "symbol": "P_ca",
+            "formula": "P_ca = K_A * P", "substitution": "1.3 * 5.5",
+            "value": "7.15", "unit": "kW",
+            "source": "成大先《机械设计手册》工况系数表（待核）",
+            "note": "K_A 按中等冲击、每天工作不超过 10 小时取 1.3"}],
+ "checks": [{"label": "带速校核", "criterion": "v <= v_max",
+             "substitution": "12.3 <= 40", "passed": true,
+             "source": "待核", "note": "说明"}],
+ "result": [{"label": "型号", "value": "H 型", "unit": ""}],
+ "caveats": ["这份草案里的 K_A 没有经过核对", "另一条"]}"""
+
+
+def _num(raw) -> float | None:
+    try:
+        return float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _recheck_arithmetic(rows: list) -> tuple[list, dict]:
+    """用引擎重算 AI 写的代入式，与它声称的值比对。
+
+    **这不证明公式对，只证明它没算错。** 两件事要分清楚：
+    公式适不适用于这个工况，引擎没有资格判断，也没有判断；
+    但 `1.3 * 5.5` 到底等于多少，引擎说了算。
+
+    代入式里只允许数字与运算符（提示词里已经要求），所以求值环境是空的——
+    出现任何名字都会被 `mds.expr` 拒掉，不会有变量悄悄参与运算。
+    """
+    from mds import expr as mds_expr
+
+    tally = {"ok": 0, "mismatch": 0, "unreadable": 0}
+    out = []
+    for raw in rows:
+        row = dict(raw) if isinstance(raw, dict) else {"label": str(raw)}
+        sub = str(row.get("substitution") or "").strip()
+        claimed = _num(row.get("value"))
+        row["arith"] = "unreadable"
+        if sub and claimed is not None:
+            try:
+                got = mds_expr.evaluate(sub, {})
+                if isinstance(got, (int, float)) and not isinstance(got, bool):
+                    row["arith_value"] = mds_expr.fmt_num(got)
+                    # 1% 的相对容差：模型通常会四舍五入到两三位有效数字，
+                    # 卡得太死会把正常的取整报成算错。
+                    scale = max(abs(float(got)), abs(claimed), 1e-9)
+                    row["arith"] = ("ok" if abs(float(got) - claimed) / scale <= 0.01
+                                    else "mismatch")
+            except Exception:                      # noqa: BLE001
+                row["arith"] = "unreadable"
+        tally[row["arith"]] += 1
+        out.append(row)
+    return out, tally
+
+
+_DRAFT_HEADER = (
+    "# ⚠ AI 参考草案 —— 这不是选型结果\n\n"
+    "这份东西由 AI 直接生成，**没有经过本软件的确定性引擎**：\n\n"
+    "- 里面每一个数都**没有可追溯的出处**，包括那些看起来像查表得来的系数\n"
+    "- 它**不能**当作选型依据，也没有存进你的物料库\n"
+    "- 引擎只做了一件事：**重算了它自己写的代入式**，看它有没有算错。\n"
+    "  算术对得上，不等于公式适用于你的工况——这两件事请分清楚\n\n"
+    "正式设计请回到引导式选型，或对照手册逐项复核下面每一步。\n\n---\n\n")
+
+
+def _as_markdown(data: dict, tally: dict) -> str:
+    """把草案渲染成能直接复制走的文本。**免责头跟着文本一起走。**"""
+    lines = [_DRAFT_HEADER.rstrip(), ""]
+    name = str(data.get("name_zh") or "")
+    if name:
+        lines += [f"## {name}", ""]
+    if data.get("standard"):
+        lines += [f"AI 认为适用的标准：{data['standard']}（未经核实）", ""]
+
+    def table(title, header, rows, cells):
+        if not rows:
+            return
+        lines.append(f"### {title}")
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("|" + "---|" * len(header))
+        for r in rows:
+            lines.append("| " + " | ".join(str(c(r) or "") for c in cells) + " |")
+        lines.append("")
+
+    table("已知条件", ["项目", "符号", "值", "单位", "说明"],
+          data.get("given") or [],
+          [lambda r: r.get("label"), lambda r: r.get("symbol"),
+           lambda r: r.get("value"), lambda r: r.get("unit"),
+           lambda r: r.get("note")])
+
+    mark = {"ok": "算术✓", "mismatch": "**算术✗**", "unreadable": "算术未核"}
+    table("计算过程", ["项目", "公式", "代入", "结果", "单位", "AI 自述出处", "引擎复核"],
+          data.get("steps") or [],
+          [lambda r: r.get("label"), lambda r: r.get("formula"),
+           lambda r: r.get("substitution"), lambda r: r.get("value"),
+           lambda r: r.get("unit"), lambda r: r.get("source"),
+           lambda r: mark.get(r.get("arith"), "")])
+
+    table("校核", ["项目", "判据", "代入", "结论", "AI 自述出处"],
+          data.get("checks") or [],
+          [lambda r: r.get("label"), lambda r: r.get("criterion"),
+           lambda r: r.get("substitution"),
+           lambda r: "通过" if r.get("passed") else "不通过",
+           lambda r: r.get("source")])
+
+    table("选型结果", ["项目", "值"], data.get("result") or [],
+          [lambda r: r.get("label"),
+           lambda r: f"{r.get('value')} {r.get('unit') or ''}".strip()])
+
+    lines += ["### 引擎复核了什么", "",
+              f"- 代入式算术：{tally['ok']} 步对得上，"
+              f"{tally['mismatch']} 步**对不上**，{tally['unreadable']} 步没法核",
+              "- 公式是否适用、系数取值是否正确：**引擎没有、也无法判断**", ""]
+
+    caveats = [str(c) for c in (data.get("caveats") or []) if str(c).strip()]
+    if caveats:
+        lines += ["### AI 自己说的不可靠之处", ""]
+        lines += [f"- {c}" for c in caveats]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def ai_draft(material_text: str, basis: dict, inputs: list, excerpts: list,
+             provider: Provider, model: str, budget=None) -> dict:
+    """兜底档：让 AI 把整个选型做完，**包括出数**。
+
+    这一档**没有合规闸门**——那是它存在的理由，也是它的代价。
+    所以这里不走 `_with_repair`：解析不出 JSON 也照样把原文交出去，
+    标明「没解析成结构化表格」。**这一档的承诺是"总有东西交给你"**，
+    不是"交给你的东西可信"。
+
+    返回的东西刻意**不是** trace 的形状：它不该能被当成选型结果传下去。
+    """
+    text = (material_text or "").strip()
+    if not text:
+        raise AIError("没有说要选什么物料。", kind="empty")
+
+    if budget:
+        budget.require(2600, "AI 参考草案")
+        budget.check()
+
+    known = [f"{i.get('name_zh', '')}（{i.get('id', '')}）" for i in inputs or []
+             if isinstance(i, dict)]
+    user = (f"物料：{text}\n"
+            + (f"用户确认过的依据：{basis.get('claim')}\n" if basis.get("claim") else "")
+            + (f"已经问过用户的参数：{'、'.join(known)}\n" if known else "")
+            + "\n" + _fenced(excerpts or []))
+
+    cap = budget.cap_tokens(4000) if budget else 4000
+    comp = provider.chat(
+        [{"role": "system", "content": _AI_DRAFT_SYS},
+         {"role": "user", "content": user}],
+        model=model, json_mode=True, max_tokens=cap)
+    if budget:
+        budget.record(comp.usage)
+
+    try:
+        data = comp.as_json()
+        parsed = isinstance(data, dict)
+    except AIError:
+        data, parsed = {}, False
+
+    if not parsed:
+        return {
+            "parsed": False,
+            "name_zh": text, "standard": "",
+            "given": [], "steps": [], "checks": [], "result": [],
+            "caveats": ["模型这次没有给出结构化的表格，下面是它的原始输出。"],
+            "arith": {"ok": 0, "mismatch": 0, "unreadable": 0},
+            "text": _DRAFT_HEADER + (comp.text or "（空）"),
+            "truncated": comp.truncated,
+            "source": "ai", "usage": comp.usage.to_dict(),
+        }
+
+    steps, tally = _recheck_arithmetic(data.get("steps") or [])
+    data["steps"] = steps
+    return {
+        "parsed": True,
+        "name_zh": str(data.get("name_zh") or text),
+        "standard": str(data.get("standard") or ""),
+        "given": data.get("given") or [],
+        "steps": steps,
+        "checks": data.get("checks") or [],
+        "result": data.get("result") or [],
+        "caveats": [str(c) for c in (data.get("caveats") or [])],
+        "arith": tally,
+        "text": _as_markdown(data, tally),
+        "truncated": comp.truncated,
+        "source": "ai",
+        "usage": comp.usage.to_dict(),
     }

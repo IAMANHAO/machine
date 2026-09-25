@@ -584,3 +584,162 @@ def test_the_workflow_endpoint_refuses_before_the_formulas_are_confirmed(guided_
     assert guided_env.get(f"/api/guided/{sid}/workflow").status_code == 409
     assert guided_env.post(f"/api/guided/{sid}/run",
                            json={"values": {}}).status_code == 409
+
+
+# ── 截断不是"不合规" ───────────────────────────────────────────────
+#
+# 用户实际踩到的那个 bug：单次 token 上限默认 1200，而"整套计算与校核"
+# 要三千多。输出被砍断 → JSON 解析不了 → 报成"模型连着 2 次不合规"，
+# 把我们自己砍断的锅扣给了模型。用户照提示去换模型，换多少次都没用。
+
+def test_the_default_token_cap_clears_every_stage_floor():
+    """**这条就是那个 bug 的守卫。**
+
+    默认上限低于某一步的结构下限时，那一步必然产出半截 JSON。
+    以后谁再把默认值调低，这条会先红。
+    """
+    from server.ai.budget import Limits
+
+    default = Limits().max_tokens_per_call
+    for floor in (1200, 1500, 2600):     # basis / inputs / steps 的下限
+        assert default >= floor, (
+            f"默认单次上限 {default} 低于某一步的结构下限 {floor}，"
+            "那一步一定会被截断")
+
+
+def test_a_cap_below_the_floor_is_refused_before_spending_money(guided_env, fake):
+    """与其花钱换回一段没法用的东西，不如在发请求之前就拦住。"""
+    from server.ai.budget import Budget, Limits
+    from server.config import data_dir
+
+    _script(basis=GOOD_BASIS, inputs=GOOD_INPUTS)
+    sid = _walk_to(guided_env, "basis_chosen")
+    # 压低上限要在走到这一步之后 —— 阶段 1 有它自己的下限，
+    # 一开始就压低会卡在更早的地方，测不到我们要测的那个点
+    Budget(data_dir()).set_limits(Limits(max_tokens_per_call=800))
+
+    before = len(fake.calls)
+    r = guided_env.post(f"/api/guided/{sid}/inputs")
+    assert r.status_code == 429
+    body = str(r.json()["detail"])
+    assert "至少需要" in body and "不是花费上限" in body
+    assert len(fake.calls) == before          # 一个 token 都没花
+
+
+def test_truncation_bumps_the_cap_once_instead_of_burning_a_repair_round(
+        guided_env, fake):
+    """照着"原因"让它重写只会得到同样长度的另一段半截 JSON。先把上限顶上去。"""
+    from server.ai.budget import Budget, Limits
+    from server.config import data_dir
+
+    # 天花板够高，但这一次请求用的 cap 被压低了 → 顶一次就能过
+    Budget(data_dir()).set_limits(Limits(max_tokens_per_call=6000))
+    _script(basis=GOOD_BASIS, inputs=GOOD_INPUTS, steps=GOOD_STEPS)
+    sid = _walk_to(guided_env, "inputs_confirmed")
+
+    fake.finish_reasons = ["length"]          # 第一次截断，第二次正常
+    r = guided_env.post(f"/api/guided/{sid}/steps")
+    assert r.status_code == 200
+
+    log = r.json()["repair_log"]["steps"]
+    assert log[0]["truncated"] and log[0].get("bumped_to") == 6000
+    assert log[1]["passed"]
+    # 顶上限那一次**不算修正轮**：对话里没有追加"请按原因修改"
+    assert all(c["turns"] == 2 for c in fake.calls[-2:])
+
+
+def test_truncation_at_the_ceiling_says_to_raise_the_limit(guided_env, fake):
+    """已经顶到用户设的上限还截断 —— 当场停，并且**不能怪模型**。"""
+    _script(basis=GOOD_BASIS, inputs=GOOD_INPUTS, steps=GOOD_STEPS)
+    sid = _walk_to(guided_env, "inputs_confirmed")
+
+    fake.finish_reasons = ["length", "length", "length", "length"]
+    before = len(fake.calls)
+    r = guided_env.post(f"/api/guided/{sid}/steps")
+    assert r.status_code == 422
+
+    msg = r.json()["detail"]["message"]
+    assert "截断" in msg and "不是模型不合规" in msg
+    assert "把上限调高" in msg or "上限调高" in msg
+    # 最多再试一次（顶上限），不会连着烧三次
+    assert len(fake.calls) - before <= 2
+
+
+# ── 兜底档：AI 参考草案 ────────────────────────────────────────────
+#
+# 前面几道闸门都过不去时总得有东西交给用户。代价是每个数都没有出处，
+# 所以它**不是选型结果**：变不成物料、进不了选型报告、不影响 can_run。
+
+AI_DRAFT = {
+    "name_zh": "磁吸铁片", "standard": "GB/T 0000（待核）",
+    "given": [{"label": "吸力", "symbol": "F", "value": "50", "unit": "N",
+               "note": "用户给定"}],
+    "steps": [
+        {"label": "算个对的", "symbol": "a", "formula": "a = k * F",
+         "substitution": "1.3 * 50", "value": "65", "unit": "N",
+         "source": "待核", "note": "k 取 1.3"},
+        {"label": "算错的一步", "symbol": "b", "formula": "b = 2 * a",
+         "substitution": "2 * 65", "value": "200", "unit": "N",
+         "source": "待核", "note": ""},
+    ],
+    "checks": [{"label": "强度", "criterion": "b <= 500",
+                "substitution": "200 <= 500", "passed": True, "source": "待核"}],
+    "result": [{"label": "推荐规格", "value": "D20 × 3", "unit": "mm"}],
+    "caveats": ["k 是我按经验取的", "没有对照任何标准"],
+}
+
+
+def test_the_ai_draft_is_not_a_selection_result(guided_env):
+    """它不能变成物料、不能让流程"完成"、也不该长得像 trace。"""
+    _script(basis=GOOD_BASIS, ai_draft=AI_DRAFT)
+    sid = _walk_to(guided_env, "basis_chosen")
+
+    r = guided_env.post(f"/api/guided/{sid}/ai-draft")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["draft"]["parsed"]
+
+    sess = body["session"]
+    assert sess["has_ai_draft"]
+    assert not sess["can_run"]                  # 有草案 ≠ 能跑
+    assert sess["steps"] == [] and sess["result"] == []
+
+    # 存不成物料：spec_dict 根本看不见它
+    assert guided_env.get(f"/api/guided/{sid}/spec").status_code == 409
+    assert guided_env.post(f"/api/guided/{sid}/save").status_code == 409
+
+
+def test_the_engine_rechecks_the_models_own_arithmetic(guided_env):
+    """引擎不认这些公式，但 `2 * 65` 到底等于多少，引擎说了算。"""
+    _script(basis=GOOD_BASIS, ai_draft=AI_DRAFT)
+    sid = _walk_to(guided_env, "basis_chosen")
+    draft = guided_env.post(f"/api/guided/{sid}/ai-draft").json()["draft"]
+
+    assert draft["arith"] == {"ok": 1, "mismatch": 1, "unreadable": 0}
+    assert draft["steps"][0]["arith"] == "ok"
+    assert draft["steps"][1]["arith"] == "mismatch"      # 声称 200，实为 130
+    assert draft["steps"][1]["arith_value"] == "130"
+
+
+def test_the_disclaimer_travels_with_the_text(guided_env):
+    """复制出去的文本也要带着「这不是选型结果」。"""
+    _script(basis=GOOD_BASIS, ai_draft=AI_DRAFT)
+    sid = _walk_to(guided_env, "basis_chosen")
+    text = guided_env.post(f"/api/guided/{sid}/ai-draft").json()["draft"]["text"]
+
+    assert text.startswith("# ⚠ AI 参考草案 —— 这不是选型结果")
+    assert "没有可追溯的出处" in text
+    assert "算术对得上，不等于公式适用于你的工况" in text
+    # 引擎复核的结论要写进文本，不能只在界面上闪一下
+    assert "1 步对得上" in text and "1 步**对不上**" in text
+
+
+def test_an_unparseable_draft_still_hands_something_over(guided_env, fake):
+    """这一档的承诺是"总有东西交给你"，不是"交给你的东西可信"。"""
+    _script(basis=GOOD_BASIS, ai_draft="这不是 JSON，只是一段话。")
+    sid = _walk_to(guided_env, "basis_chosen")
+
+    draft = guided_env.post(f"/api/guided/{sid}/ai-draft").json()["draft"]
+    assert draft["parsed"] is False
+    assert "这不是 JSON" in draft["text"]
+    assert draft["text"].startswith("# ⚠ AI 参考草案")

@@ -485,6 +485,47 @@ export interface RepairAttempt {
   usage: Usage
 }
 
+/**
+ * 兜底档：AI 直接做完的参考草案。
+ *
+ * **它不是选型结果**：没有经过确定性引擎，每个数都没有出处，
+ * 存不成物料，也进不了选型报告。引擎只重算了它自己写的代入式。
+ */
+export interface AiDraft {
+  /** false = 模型没给出结构化表格，只有 text 里的原文 */
+  parsed: boolean
+  name_zh: string
+  standard: string
+  given: { label: string; symbol: string; value: string; unit: string; note: string }[]
+  steps: AiDraftStep[]
+  checks: {
+    label: string; criterion: string; substitution: string
+    passed: boolean; source: string; note?: string
+  }[]
+  result: { label: string; value: string; unit: string }[]
+  caveats: string[]
+  /** 引擎复核它自己算术的结果 —— 不是"公式对不对" */
+  arith: { ok: number; mismatch: number; unreadable: number }
+  /** 带免责头的完整文本，复制出去也带着 */
+  text: string
+  truncated: boolean
+  usage?: Usage
+}
+
+export interface AiDraftStep {
+  label: string
+  symbol: string
+  formula: string
+  substitution: string
+  value: string
+  unit: string
+  source: string
+  note?: string
+  /** ok = 算术对得上；mismatch = 它自己算错了；unreadable = 代入式没法核 */
+  arith: 'ok' | 'mismatch' | 'unreadable'
+  arith_value?: string
+}
+
 export type GuidedStage = 'new' | 'basis' | 'inputs' | 'steps' | 'ready' | 'saved'
 
 export interface GuidedSession {
@@ -514,6 +555,9 @@ export interface GuidedSession {
   formulas_confirmed_at: string
 
   repair_log: Record<string, RepairAttempt[]>
+  /** 兜底档产出的草案。**有它不等于 can_run**。 */
+  ai_draft: AiDraft | Record<string, never>
+  has_ai_draft: boolean
   created_at: string
   updated_at: string
 

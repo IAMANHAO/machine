@@ -280,7 +280,15 @@ def _hits_from(data: dict, spec: SearchSpec) -> list[Hit]:
 # --- ③ 白名单站点本地目录 ---------------------------------------------------
 
 def _catalog_path(domain: str, root: Path) -> Path:
-    return root / "knowledge" / "cache" / "_site_catalog" / f"{domain}.yaml"
+    """站点目录缓存**不能**放进 `knowledge/cache/`。
+
+    那底下的每个子目录都被 `mds.knowledge.Knowledge.materials()` 当成一个物料，
+    于是 `_site_catalog` 会冒充成第 26 个"物料"、它的目录文件冒充成一张数据表，
+    把知识库自检的张数顶高一张。打包冒烟里那条"随包 25 张表"就是这么红的。
+
+    检索缓存和知识库是两件事，分开放。
+    """
+    return root / "search_cache" / f"{domain}.yaml"
 
 
 def site_catalog(site: research.Site, root: Path, *,
